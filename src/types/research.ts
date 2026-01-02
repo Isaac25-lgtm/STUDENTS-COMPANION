@@ -2,12 +2,12 @@
 
 export interface ResearchFormData {
   // Step 1: Basic Information
-  studentName: string;
-  regNo: string;
+  studentName?: string;
+  regNo?: string;
   program: string;
   department: string;
   university: string;
-  supervisor: string;
+  // supervisor field removed as requested
   monthYear: string;
 
   // Step 2: Research Topic & Design
@@ -83,7 +83,6 @@ export const DEFAULT_FORM_DATA: ResearchFormData = {
   program: '',
   department: '',
   university: '',
-  supervisor: '',
   monthYear: '',
   topic: '',
   design: 'quantitative',
@@ -97,4 +96,3 @@ export const DEFAULT_FORM_DATA: ResearchFormData = {
   preferredTheories: [],
   additionalInstructions: '',
 };
-

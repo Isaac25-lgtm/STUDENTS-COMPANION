@@ -62,12 +62,10 @@ export default function ResearchForm({ onSubmit, isLoading }: ResearchFormProps)
     const newErrors: Partial<Record<keyof ResearchFormData, string>> = {};
 
     if (step === 1) {
-      if (!formData.studentName.trim()) newErrors.studentName = 'Required';
-      if (!formData.regNo.trim()) newErrors.regNo = 'Required';
+      // Name and RegNo are optional now
       if (!formData.program.trim()) newErrors.program = 'Required';
       if (!formData.department.trim()) newErrors.department = 'Required';
       if (!formData.university.trim()) newErrors.university = 'Required';
-      if (!formData.supervisor.trim()) newErrors.supervisor = 'Required';
       if (!formData.monthYear.trim()) newErrors.monthYear = 'Required';
     }
 
@@ -150,7 +148,7 @@ export default function ResearchForm({ onSubmit, isLoading }: ResearchFormProps)
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className={labelClass}>Full Name *</label>
+                <label className={labelClass}>Full Name (Optional)</label>
                 <input
                   type="text"
                   value={formData.studentName}
@@ -158,11 +156,10 @@ export default function ResearchForm({ onSubmit, isLoading }: ResearchFormProps)
                   className={inputClass}
                   placeholder="Your full name"
                 />
-                {errors.studentName && <p className={errorClass}><AlertCircle className="w-3 h-3" />{errors.studentName}</p>}
               </div>
 
               <div>
-                <label className={labelClass}>Registration Number *</label>
+                <label className={labelClass}>Registration Number (Optional)</label>
                 <input
                   type="text"
                   value={formData.regNo}
@@ -170,7 +167,6 @@ export default function ResearchForm({ onSubmit, isLoading }: ResearchFormProps)
                   className={inputClass}
                   placeholder="e.g., 2024/HD02/1234U"
                 />
-                {errors.regNo && <p className={errorClass}><AlertCircle className="w-3 h-3" />{errors.regNo}</p>}
               </div>
 
               <div>
@@ -207,18 +203,6 @@ export default function ResearchForm({ onSubmit, isLoading }: ResearchFormProps)
                   placeholder="e.g., Makerere University"
                 />
                 {errors.university && <p className={errorClass}><AlertCircle className="w-3 h-3" />{errors.university}</p>}
-              </div>
-
-              <div>
-                <label className={labelClass}>Supervisor (Name & Title) *</label>
-                <input
-                  type="text"
-                  value={formData.supervisor}
-                  onChange={(e) => updateField('supervisor', e.target.value)}
-                  className={inputClass}
-                  placeholder="e.g., Dr. Jane Nakato"
-                />
-                {errors.supervisor && <p className={errorClass}><AlertCircle className="w-3 h-3" />{errors.supervisor}</p>}
               </div>
 
               <div className="md:col-span-2">

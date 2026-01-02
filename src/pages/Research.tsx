@@ -16,6 +16,7 @@ import ResearchForm from '../components/research/ResearchForm';
 import ProposalViewer from '../components/research/ProposalViewer';
 import FollowUpChat from '../components/research/FollowUpChat';
 import { generateProposal, sendFollowUp } from '../services/gemini';
+import { convertMarkdownToDocx } from '../utils/markdownToDocx';
 import type { ResearchFormData, ChatMessage } from '../types/research';
 
 type ViewMode = 'home' | 'form' | 'proposal';
@@ -24,6 +25,8 @@ export default function Research() {
   const { darkMode, theme } = useTheme();
   const [viewMode, setViewMode] = useState<ViewMode>('home');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [currentSection, setCurrentSection] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [proposal, setProposal] = useState('');
@@ -59,10 +62,15 @@ export default function Research() {
   const handleFormSubmit = async (data: ResearchFormData) => {
     setFormData(data);
     setIsGenerating(true);
+    setGenerationProgress(0);
+    setCurrentSection('Starting...');
     setError(null);
 
     try {
-      const result = await generateProposal(data);
+      const result = await generateProposal(data, (progress, section) => {
+        setGenerationProgress(progress);
+        setCurrentSection(section);
+      });
       setProposal(result);
       setViewMode('proposal');
       setChatMessages([]);
@@ -70,6 +78,8 @@ export default function Research() {
       setError(err instanceof Error ? err.message : 'Failed to generate proposal');
     } finally {
       setIsGenerating(false);
+      setGenerationProgress(0);
+      setCurrentSection('');
     }
   };
 
@@ -119,17 +129,12 @@ export default function Research() {
     setIsExporting(true);
     
     try {
-      // Create a simple text blob for download
-      // In a production app, you'd use a library like docx to create proper Word files
-      const blob = new Blob([proposal], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Research_Proposal_${formData?.studentName?.replace(/\s+/g, '_') || 'Draft'}.txt`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      // Use the proper Markdown to DOCX converter
+      await convertMarkdownToDocx(
+        proposal,
+        formData?.topic || 'Research Proposal',
+        formData?.studentName
+      );
     } catch (err) {
       console.error('Export failed:', err);
     } finally {
@@ -166,6 +171,32 @@ export default function Research() {
         {error && (
           <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-sm">
             {error}
+          </div>
+        )}
+
+        {/* Generation Progress Overlay */}
+        {isGenerating && (
+          <div className={`mb-6 p-6 rounded-2xl border ${darkMode ? 'bg-slate-800/90 border-amber-500/50' : 'bg-white border-amber-400'}`}>
+            <div className="flex items-center gap-4 mb-4">
+              <div className="relative">
+                <div className="w-12 h-12 rounded-full border-4 border-amber-500/30 border-t-amber-500 animate-spin"></div>
+              </div>
+              <div>
+                <p className={`font-semibold ${theme.text}`}>Generating Your Proposal...</p>
+                <p className={`text-sm ${theme.textMuted}`}>{currentSection}</p>
+              </div>
+            </div>
+            
+            {/* Progress Bar */}
+            <div className={`h-3 rounded-full overflow-hidden ${darkMode ? 'bg-slate-700' : 'bg-slate-200'}`}>
+              <div 
+                className="h-full bg-gradient-to-r from-amber-500 to-emerald-500 transition-all duration-500 ease-out"
+                style={{ width: `${generationProgress}%` }}
+              />
+            </div>
+            <p className={`text-xs ${theme.textFaint} mt-2 text-center`}>
+              {generationProgress}% complete • Generating chapter by chapter for maximum length
+            </p>
           </div>
         )}
 
