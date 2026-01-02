@@ -6,8 +6,8 @@ import type { ResearchFormData } from '../types/research';
 // NEVER hardcode API keys in source code
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
-// Using Gemini 1.5 Pro Latest for highest quality output
-const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent';
+// Using Gemini 1.5 Pro for highest quality output
+const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent';
 
 interface GeminiResponse {
   candidates: Array<{
@@ -63,7 +63,7 @@ export async function sendFollowUp(
   const prompt = buildFollowUpPrompt(topic, university, query, currentProposal);
   
   // Use Pro model for follow-ups too for quality (user requested quality over speed)
-  const proUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent';
+  const proUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent';
   
   const response = await fetch(`${proUrl}?key=${API_KEY}`, {
     method: 'POST',
