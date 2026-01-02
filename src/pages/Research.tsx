@@ -1,8 +1,35 @@
-import { GraduationCap, Plus, FileText, Users, Lightbulb, ChevronRight, BookOpen, MessageSquare } from 'lucide-react';
+import { useState } from 'react';
+import { 
+  GraduationCap, 
+  Plus, 
+  FileText, 
+  Users, 
+  Lightbulb, 
+  ChevronRight, 
+  BookOpen, 
+  MessageSquare,
+  ArrowLeft,
+  Sparkles
+} from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
+import ResearchForm from '../components/research/ResearchForm';
+import ProposalViewer from '../components/research/ProposalViewer';
+import FollowUpChat from '../components/research/FollowUpChat';
+import { generateProposal, sendFollowUp } from '../services/gemini';
+import type { ResearchFormData, ChatMessage } from '../types/research';
+
+type ViewMode = 'home' | 'form' | 'proposal';
 
 export default function Research() {
   const { darkMode, theme } = useTheme();
+  const [viewMode, setViewMode] = useState<ViewMode>('home');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [proposal, setProposal] = useState('');
+  const [formData, setFormData] = useState<ResearchFormData | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   const features = [
     { id: 'proposal', name: 'Research Proposal', desc: 'Generate structured proposal with all sections', icon: FileText, color: 'amber' },
@@ -23,6 +50,165 @@ export default function Research() {
     violet: { bg: darkMode ? 'bg-violet-900/60' : 'bg-violet-100', text: darkMode ? 'text-violet-400' : 'text-violet-600' },
   };
 
+  const handleFeatureClick = (featureId: string) => {
+    if (featureId === 'proposal') {
+      setViewMode('form');
+    }
+  };
+
+  const handleFormSubmit = async (data: ResearchFormData) => {
+    setFormData(data);
+    setIsGenerating(true);
+    setError(null);
+
+    try {
+      const result = await generateProposal(data);
+      setProposal(result);
+      setViewMode('proposal');
+      setChatMessages([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate proposal');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleChatMessage = async (message: string) => {
+    if (!formData) return;
+
+    const userMessage: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: message,
+      timestamp: new Date(),
+    };
+
+    setChatMessages(prev => [...prev, userMessage]);
+    setIsChatLoading(true);
+
+    try {
+      const response = await sendFollowUp(
+        formData.topic,
+        formData.university,
+        message,
+        proposal
+      );
+
+      const assistantMessage: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: response,
+        timestamp: new Date(),
+      };
+
+      setChatMessages(prev => [...prev, assistantMessage]);
+    } catch (err) {
+      const errorMessage: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: 'Sorry, I encountered an error. Please try again.',
+        timestamp: new Date(),
+      };
+      setChatMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    
+    try {
+      // Create a simple text blob for download
+      // In a production app, you'd use a library like docx to create proper Word files
+      const blob = new Blob([proposal], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Research_Proposal_${formData?.studentName?.replace(/\s+/g, '_') || 'Draft'}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed:', err);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Form View
+  if (viewMode === 'form') {
+    return (
+      <div className="animate-fade-in">
+        {/* Back Button */}
+        <button
+          onClick={() => setViewMode('home')}
+          className={`flex items-center gap-2 mb-6 text-sm font-medium transition-colors ${
+            darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to Research
+        </button>
+
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-6">
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${darkMode ? 'bg-amber-900/60' : 'bg-amber-100'}`}>
+            <Sparkles className={`w-6 h-6 ${darkMode ? 'text-amber-400' : 'text-amber-600'}`} strokeWidth={1.5} />
+          </div>
+          <div>
+            <h1 className={`text-2xl font-bold ${theme.text}`}>Generate Research Proposal</h1>
+            <p className={`text-sm ${theme.textMuted}`}>Complete the form to generate your AI-powered proposal</p>
+          </div>
+        </div>
+
+        {error && (
+          <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-sm">
+            {error}
+          </div>
+        )}
+
+        <ResearchForm onSubmit={handleFormSubmit} isLoading={isGenerating} />
+      </div>
+    );
+  }
+
+  // Proposal View
+  if (viewMode === 'proposal') {
+    return (
+      <div className="animate-fade-in space-y-6">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${darkMode ? 'bg-emerald-900/60' : 'bg-emerald-100'}`}>
+            <FileText className={`w-6 h-6 ${darkMode ? 'text-emerald-400' : 'text-emerald-600'}`} strokeWidth={1.5} />
+          </div>
+          <div>
+            <h1 className={`text-2xl font-bold ${theme.text}`}>Your Research Proposal</h1>
+            <p className={`text-sm ${theme.textMuted}`}>{formData?.topic}</p>
+          </div>
+        </div>
+
+        {/* Proposal Viewer */}
+        <ProposalViewer
+          proposal={proposal}
+          onProposalChange={setProposal}
+          onBack={() => setViewMode('home')}
+          isExporting={isExporting}
+          onExport={handleExport}
+        />
+
+        {/* Follow-up Chat */}
+        <FollowUpChat
+          messages={chatMessages}
+          onSendMessage={handleChatMessage}
+          isLoading={isChatLoading}
+        />
+      </div>
+    );
+  }
+
+  // Home View
   return (
     <div className="animate-fade-in">
       {/* Header */}
@@ -36,13 +222,16 @@ export default function Research() {
             <p className={`text-sm ${theme.textMuted}`}>End-to-end support from proposal to thesis</p>
           </div>
         </div>
-        <button className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium transition-all ${
-          darkMode 
-            ? 'bg-amber-600 hover:bg-amber-500 text-white' 
-            : 'bg-amber-600 hover:bg-amber-700 text-white'
-        } shadow-lg shadow-amber-500/20`}>
+        <button 
+          onClick={() => setViewMode('form')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium transition-all ${
+            darkMode 
+              ? 'bg-amber-600 hover:bg-amber-500 text-white' 
+              : 'bg-amber-600 hover:bg-amber-700 text-white'
+          } shadow-lg shadow-amber-500/20`}
+        >
           <Plus className="w-4 h-4" strokeWidth={2} />
-          New Project
+          New Proposal
         </button>
       </div>
 
@@ -55,6 +244,7 @@ export default function Research() {
             return (
               <button
                 key={feature.id}
+                onClick={() => handleFeatureClick(feature.id)}
                 className={`p-4 rounded-2xl border text-left transition-all hover:shadow-lg hover:-translate-y-0.5 ${
                   darkMode 
                     ? 'bg-slate-800/70 border-slate-700/50 hover:border-slate-600' 
@@ -134,4 +324,3 @@ export default function Research() {
     </div>
   );
 }
-
