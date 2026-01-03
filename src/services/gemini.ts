@@ -498,6 +498,107 @@ Target: ~${targetWords} words.`;
   }
 }
 
+// Ask AI Module - Uses Gemini Flash for fast concept explanations
+const ASK_AI_SYSTEM_PROMPT = `You are an expert academic tutor helping university students understand complex concepts. Your role is to explain topics clearly and thoroughly.
+
+GUIDELINES:
+1. Start with a brief, accessible overview
+2. Break down complex concepts into understandable parts
+3. Use real-world examples and analogies
+4. Be thorough but concise
+5. Use bullet points and numbered lists for clarity
+6. End with key takeaways when appropriate
+7. Be encouraging and supportive
+
+You can help with any academic subject including sciences, mathematics, social sciences, humanities, business, health sciences, engineering, and more.
+
+STYLE:
+- Write in clear, natural language
+- Avoid jargon unless explaining it
+- Use formatting (bold, bullets) for readability
+- Be direct and helpful`;
+
+export interface AskAIMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export async function askAI(
+  userMessage: string,
+  conversationHistory: AskAIMessage[] = []
+): Promise<string> {
+  if (!API_KEY) {
+    throw new Error('Gemini API key not configured. Please add VITE_GEMINI_API_KEY to your .env.local file.');
+  }
+
+  // Build conversation context
+  let conversationContext = '';
+  if (conversationHistory.length > 0) {
+    conversationContext = '\n\nPREVIOUS CONVERSATION:\n' + 
+      conversationHistory.slice(-6).map(msg => 
+        `${msg.role === 'user' ? 'Student' : 'Tutor'}: ${msg.content}`
+      ).join('\n\n');
+  }
+
+  const prompt = `${ASK_AI_SYSTEM_PROMPT}
+${conversationContext}
+
+STUDENT'S QUESTION:
+${userMessage}
+
+YOUR RESPONSE:`;
+
+  // Use Flash model for speed (prioritize gemini-3-flash, then fallback)
+  const flashModels = [
+    'gemini-2.0-flash',
+    'gemini-1.5-flash',
+    'gemini-2.5-flash'
+  ];
+
+  let lastError: Error | null = null;
+
+  for (const model of flashModels) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${API_KEY}`;
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            maxOutputTokens: 4000,
+            temperature: 0.7,
+            topP: 0.9,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+      }
+
+      const data: GeminiResponse = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      
+      if (!text) {
+        throw new Error('No content in Gemini response');
+      }
+
+      return text;
+    } catch (error) {
+      console.warn(`Ask AI model ${model} failed:`, error);
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+
+  throw lastError || new Error('All Gemini models failed for Ask AI');
+}
+
 // Follow-up chat function (unchanged)
 export async function sendFollowUp(
   topic: string,

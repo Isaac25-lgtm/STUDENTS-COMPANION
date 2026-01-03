@@ -174,3 +174,4 @@ export default function FollowUpChat({ messages, onSendMessage, isLoading }: Fol
   );
 }
 
+
