@@ -6,12 +6,12 @@ import type { ResearchFormData } from '../types/research';
 // API Key is loaded from environment variable (.env.local)
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
-// Models in order of preference (fallback chain)
-const FALLBACK_MODELS = [
-  'gemini-3-pro-preview',
-  'gemini-3-flash-preview',
-  'gemini-2.5-pro',
-  'gemini-2.5-flash'
+// Models as of January 2026 - Gemini 3 series is the latest
+const PROPOSAL_MODELS = [
+  'gemini-3-pro-preview',      // Latest SOTA - Released Nov 2025
+  'gemini-3-flash-preview',    // Fast alternative - Late 2025
+  'gemini-2.5-pro',            // Mature fallback
+  'gemini-2.5-flash',          // Fast mature fallback
 ];
 
 // Sections to generate separately for a complete proposal
@@ -41,16 +41,51 @@ interface GeminiResponse {
 // Progress callback type
 export type ProgressCallback = (progress: number, currentSection: string) => void;
 
+// Function to list available models (for debugging)
+export async function listAvailableModels(): Promise<string[]> {
+  if (!API_KEY) {
+    throw new Error('Gemini API key not configured');
+  }
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${API_KEY}`
+    );
+    
+    if (!response.ok) {
+      console.error('Failed to list models:', await response.text());
+      return [];
+    }
+    
+    const data = await response.json();
+    const models = data.models?.map((m: any) => m.name) || [];
+    console.log('Available Gemini models:', models);
+    return models;
+  } catch (error) {
+    console.error('Error listing models:', error);
+    return [];
+  }
+}
+
 // Helper function to try models in sequence
 async function generateContentWithFallback(prompt: string, maxTokens: number = 16000): Promise<string> {
   if (!API_KEY) {
     throw new Error('Gemini API key not configured. Please add VITE_GEMINI_API_KEY to your .env.local file.');
   }
 
-  let lastError: Error | null = null;
+  // First, try to list available models (for debugging)
+  const availableModels = await listAvailableModels();
+  if (availableModels.length > 0) {
+    console.log('🔍 Found', availableModels.length, 'available models');
+  }
 
-  for (const model of FALLBACK_MODELS) {
+  let lastError: Error | null = null;
+  const triedModels: string[] = [];
+
+  for (const model of PROPOSAL_MODELS) {
+    triedModels.push(model);
     try {
+      console.log(`🔄 Trying model: ${model}...`);
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${API_KEY}`;
       
       const response = await fetch(url, {
@@ -71,19 +106,36 @@ async function generateContentWithFallback(prompt: string, maxTokens: number = 1
 
       if (!response.ok) {
         const errorText = await response.text();
+        console.warn(`❌ Model ${model} failed with status ${response.status}`);
         throw new Error(`Model ${model} failed with status ${response.status}: ${errorText}`);
       }
 
       const data: GeminiResponse = await response.json();
-      return data.candidates[0]?.content?.parts[0]?.text || '';
+      const generatedText = data.candidates[0]?.content?.parts[0]?.text || '';
+      
+      console.log(`✅ Successfully used Gemini model: ${model}`);
+      return generatedText;
 
     } catch (error) {
-      console.warn(`Attempt with ${model} failed:`, error);
+      console.warn(`❌ Attempt with ${model} failed:`, error);
       lastError = error as Error;
     }
   }
 
-  throw new Error(`All Gemini models failed. Last error: ${lastError?.message}`);
+  // Provide helpful error message
+  const errorMsg = `All Gemini models failed. Tried: ${triedModels.join(', ')}.
+
+Last error: ${lastError?.message}
+
+TROUBLESHOOTING:
+1. Check your API key is valid at https://aistudio.google.com/
+2. Ensure your API key has access to Gemini models
+3. Check if you've exceeded your API quota
+4. Try generating a new API key
+
+Available models in your account: ${availableModels.join(', ') || 'Unable to list'}`;
+
+  throw new Error(errorMsg);
 }
 
 // Main proposal generation - chapter by chapter
@@ -193,13 +245,23 @@ WRITING STYLE RULES (FOLLOW STRICTLY)
 
 3. VARY SENTENCES: Mix short (8-12 words), medium (15-25), and long (25-35) sentences. Don't start consecutive sentences the same way.
 
-4. CITATIONS: Use APA 7th Edition. High density in literature review. Use Uganda-specific sources (UBOS, Bank of Uganda, GSMA) for local claims.
+4. CITATIONS - REAL SOURCES ONLY:
+   - Use APA 7th Edition format
+   - ONLY cite real, verifiable sources
+   - Include author names that sound authentic (not generic)
+   - Use realistic publication years
+   - High citation density in literature review (2-3 citations per paragraph)
+   - Uganda-specific sources for local claims (UBOS, Bank of Uganda, GSMA, Ministry reports)
+   - International peer-reviewed journals for theoretical concepts
+   - Each citation MUST appear in the References section with DOI/URL
 
 5. TENSES: Future for methodology ("will examine"), Past for literature ("found that"), Present for facts ("is defined as").
 
 6. NO ASCII ART OR TEXT DIAGRAMS: Never use text-based arrows like "[X] --> [Y]" or "[Variable] --(+)--> [Variable]". These look unprofessional. Instead, describe relationships in prose or use properly formatted tables.
 
-7. NO FAKE WORD COUNTS: Never write "Word count: X" at the end. Just write the content.`;
+7. NO FAKE WORD COUNTS: Never write "Word count: X" at the end. Just write the content.
+
+8. VERIFY BEFORE CITING: Before citing a source, ensure it's a real publication. Use well-known journals, established organizations, and verifiable reports.`;
 }
 
 function getSectionInstructions(sectionId: string, data: ResearchFormData, targetWords: number): string {
@@ -451,18 +513,61 @@ Target: ~${targetWords} words.`;
     case 'references':
       return `Write the REFERENCES section.
 
-- Use APA 7th Edition format strictly
-- Alphabetical order by first author's surname
-- Include 30-40 references minimum
-- Mix:
-  * 60-70% peer-reviewed journal articles (recent, 2018-2024)
-  * 20-30% institutional reports (UBOS, Bank of Uganda, World Bank, GSMA)
-  * 5-10% books or book chapters
+CRITICAL REQUIREMENTS FOR REFERENCES:
 
-Ensure ALL citations mentioned in previous chapters appear here.
-Include Uganda-specific sources.
+1. ALL REFERENCES MUST BE REAL AND ACCESSIBLE
+   - Only cite papers/reports that actually exist
+   - Verify publication years are realistic
+   - Use real author names
 
-Target: ~${targetWords} words (approximately 30-40 complete references).`;
+2. INCLUDE DOI OR URL LINKS
+   - For journal articles: Add DOI link (e.g., https://doi.org/10.1234/example)
+   - For reports: Add direct URL to the PDF or webpage
+   - For books: Include publisher website or WorldCat link if available
+   
+3. REFERENCE QUALITY STANDARDS
+   - Use APA 7th Edition format strictly
+   - Alphabetical order by first author's surname
+   - Include 30-40 references minimum
+   - Mix of sources:
+     * 60-70% peer-reviewed journal articles (recent, 2018-2024)
+     * 20-30% institutional reports (UBOS, Bank of Uganda, World Bank, GSMA, IMF)
+     * 5-10% books or book chapters
+
+4. UGANDA-SPECIFIC SOURCES (Include these types):
+   - Uganda Bureau of Statistics (UBOS) reports: https://www.ubos.org/
+   - Bank of Uganda publications: https://www.bou.or.ug/
+   - Ministry reports and policy documents
+   - GSMA Mobile Money reports: https://www.gsma.com/
+   - Academic papers specifically about Uganda
+
+5. INTERNATIONAL SOURCES (High-quality journals):
+   - Scopus/Web of Science indexed journals
+   - Well-known publishers (Elsevier, Springer, Wiley, SAGE, Taylor & Francis)
+   - Open-access journals from DOAJ
+
+6. FORMAT EXAMPLE:
+   Author, A. A., & Author, B. B. (Year). Title of article. *Journal Name, Volume*(Issue), pages. https://doi.org/XX.XXXX/xxxxx
+
+   Organization Name. (Year). *Title of report*. Publisher. https://www.example.com/report.pdf
+
+VERIFICATION CHECKLIST:
+✓ Each reference corresponds to an in-text citation
+✓ Each reference includes a DOI or working URL
+✓ Publication dates are plausible (not future dates)
+✓ Author names sound real (not generic like "John Smith, Jane Doe")
+✓ Journal names are real journals in the field
+✓ Uganda-specific claims are backed by Uganda-specific sources
+
+IMPORTANT: Do NOT fabricate references. If you're uncertain about a specific source, use well-known, verifiable sources like:
+- World Bank Open Knowledge Repository
+- PubMed/PMC for health topics
+- Google Scholar indexed papers
+- Government statistical agencies
+- UN agency reports
+
+Target: ~${targetWords} words (approximately 30-40 complete references with links).`;
+
 
     case 'appendices':
       return `Write the APPENDICES section.
@@ -548,11 +653,12 @@ ${userMessage}
 
 YOUR RESPONSE:`;
 
-  // Use Flash model for speed (prioritize gemini-3-flash, then fallback)
+  // Use Flash models for speed - January 2026 model names
   const flashModels = [
-    'gemini-2.0-flash',
-    'gemini-1.5-flash',
-    'gemini-2.5-flash'
+    'gemini-3-flash-preview',    // Latest fast model - Late 2025
+    'gemini-3-pro-preview',      // Latest SOTA - Nov 2025
+    'gemini-2.5-flash',          // Mature fast model
+    'gemini-2.5-pro',            // Mature pro model
   ];
 
   let lastError: Error | null = null;
@@ -599,7 +705,7 @@ YOUR RESPONSE:`;
   throw lastError || new Error('All Gemini models failed for Ask AI');
 }
 
-// Follow-up chat function (unchanged)
+// Follow-up chat function for proposal revision
 export async function sendFollowUp(
   topic: string,
   university: string,
@@ -633,4 +739,111 @@ INSTRUCTIONS
 Respond helpfully:`;
 
   return generateContentWithFallback(prompt, 8000);
+}
+
+// Research Builder Chat - Simple conversational helper for research sections
+export async function researchChat(
+  prompt: string,
+  context: 'proposal' | 'literature' | 'methodology' | 'discussion' | 'research' = 'research'
+): Promise<string> {
+  if (!API_KEY) {
+    throw new Error('Gemini API key not configured. Please add VITE_GEMINI_API_KEY to your .env.local file.');
+  }
+
+  const contextInstructions: Record<string, string> = {
+    proposal: `You are helping a student build their research proposal. Guide them conversationally through:
+- Defining their research topic
+- Writing background/introduction
+- Creating problem statements
+- Developing objectives and research questions
+- Explaining significance of the study
+Keep responses concise (under 200 words) and encouraging.`,
+    
+    literature: `You are helping a student with their literature review. Help them:
+- Find and organize sources by themes
+- Summarize academic sources
+- Identify research gaps
+- Write literature synthesis
+Keep responses focused and practical.`,
+    
+    methodology: `You are helping a student design their research methodology. Guide them through:
+- Choosing research design (quantitative/qualitative/mixed)
+- Sampling methods and sample size
+- Data collection instruments
+- Data analysis approaches
+- Ethical considerations
+Explain concepts simply and practically.`,
+    
+    discussion: `You are helping a student write their discussion and conclusion. Help them:
+- Interpret findings
+- Connect to existing literature
+- Identify implications
+- Acknowledge limitations
+- Write recommendations
+Be supportive and specific.`,
+    
+    research: `You are an expert research advisor helping a Ugandan university student with their thesis/dissertation. Be conversational, encouraging, and practical. Keep responses under 200 words unless generating content.`
+  };
+
+  const systemPrompt = contextInstructions[context] || contextInstructions.research;
+
+  const fullPrompt = `${systemPrompt}
+
+USER REQUEST:
+${prompt}
+
+YOUR RESPONSE:`;
+
+  // Use Flash models for quick responses - January 2026 model names
+  const models = [
+    'gemini-2.5-flash',
+    'gemini-2.5-pro',
+    'gemini-2.0-flash-exp',
+    'gemini-1.5-flash',
+  ];
+
+  let lastError: Error | null = null;
+
+  for (const model of models) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${API_KEY}`;
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: fullPrompt }] }],
+          generationConfig: {
+            maxOutputTokens: 4000,
+            temperature: 0.7,
+            topP: 0.9,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.warn(`Model ${model} failed:`, response.status);
+        throw new Error(`Model ${model} failed: ${response.status}`);
+      }
+
+      const data: GeminiResponse = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      
+      if (!text) {
+        throw new Error('No content in response');
+      }
+
+      console.log(`✅ researchChat used model: ${model}`);
+      return text;
+    } catch (error) {
+      console.warn(`researchChat model ${model} failed:`, error);
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+
+  throw lastError || new Error('All models failed for research chat');
 }

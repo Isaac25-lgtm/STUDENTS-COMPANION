@@ -33,3 +33,9 @@ Thumbs.db
 .env.test.local
 .env.production.local
 
+# Python Backend
+backend/venv/
+backend/uploads/
+backend/__pycache__/
+*.pyc
+

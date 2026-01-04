@@ -1,770 +1,686 @@
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
-  FlaskConical, Upload, BarChart3, MessageSquareText, ArrowLeft, ArrowRight,
-  Send, Loader2, RefreshCw, ChevronRight, FileSpreadsheet, FileText, 
-  CheckCircle2, Circle, AlertCircle, Sparkles, Download, MessageCircle,
-  PieChart, TrendingUp, Table, Brain, Lightbulb, X, Activity, Layers, 
-  AlertTriangle, Check, Search
+  Upload, Send, Download, FileSpreadsheet, BarChart3, Table2, FileText, 
+  CheckCircle2, Circle, ChevronRight, Lightbulb, Trash2, RefreshCw, 
+  Settings, HelpCircle, X, File, Activity, TrendingUp, PieChart, AlertCircle
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
-import { 
-  sendDataLabMessage, 
-  WORKFLOW_STAGES, 
-  getStageIndex,
-  getInitialGreeting,
-  importDataFile,
-  runQualityCheck,
-  getDescriptiveStats,
-  checkBackendAvailability,
-  type AnalysisType, 
-  type WorkflowStage,
-  type DataLabMessage 
-} from '../services/dataLabAI';
-import type { QualityReport, DescriptiveStats, APATable, AnalysisResult } from '../services/dataLabAPI';
+import * as dataAnalysisR1 from '../services/dataAnalysisR1';
+import type { QualityReport, DescriptiveStats, AnalysisResult } from '../services/dataAnalysisR1';
+import { saveAs } from 'file-saver';
+
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+}
+
+interface GeneratedOutput {
+  id: string;
+  name: string;
+  type: 'table' | 'chart' | 'document';
+  status: 'ready' | 'generating';
+  data?: any;
+  content?: string;
+  downloadFormat?: 'csv' | 'xlsx' | 'txt' | 'md';
+}
 
 export default function DataLab() {
-  const { darkMode, theme } = useTheme();
-
-  // Analysis state
-  const [viewMode, setViewMode] = useState<'selection' | 'analysis'>('selection');
-  const [analysisType, setAnalysisType] = useState<AnalysisType | null>(null);
-  const [currentStage, setCurrentStage] = useState<WorkflowStage>('plan');
-  const [backendReady, setBackendReady] = useState<boolean>(false);
-  
-  // Data state
-  const [currentDatasetId, setCurrentDatasetId] = useState<string | null>(null);
+  const { darkMode } = useTheme();
+  const [currentStep, setCurrentStep] = useState(1);
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    { 
+      id: '1',
+      role: 'assistant', 
+      content: "Welcome to Data Analysis Lab! I'll guide you through your statistical analysis step by step. What are your research objectives?",
+      timestamp: new Date()
+    }
+  ]);
+  const [input, setInput] = useState('');
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [outputs, setOutputs] = useState<GeneratedOutput[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [qualityReport, setQualityReport] = useState<QualityReport | null>(null);
   const [descriptiveStats, setDescriptiveStats] = useState<DescriptiveStats | null>(null);
-  const [lastResult, setLastResult] = useState<{table?: APATable, interpretation?: string} | null>(null);
+  const [researchObjectives, setResearchObjectives] = useState<string>('');
   
-  // Dashboard state
-  const [activeTab, setActiveTab] = useState<'overview' | 'health' | 'variables' | 'results'>('overview');
-  
-  // Chat state
-  const [messages, setMessages] = useState<DataLabMessage[]>([]);
-  const [inputMessage, setInputMessage] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  
-  // Custom input state (for supervisor comments, specific requests)
-  const [showCustomInput, setShowCustomInput] = useState(false);
-  const [customContext, setCustomContext] = useState('');
-  
-  // File upload state
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  
-  // Refs
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const chatInputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Check backend status on mount
-  useEffect(() => {
-    checkBackendAvailability().then(setBackendReady);
-  }, []);
+  const steps = [
+    { id: 1, name: 'Plan', desc: 'Define objectives' },
+    { id: 2, name: 'Import', desc: 'Upload data' },
+    { id: 3, name: 'Clean', desc: 'Handle missing data' },
+    { id: 4, name: 'Profile', desc: 'Descriptive stats' },
+    { id: 5, name: 'Analyze', desc: 'Statistical tests' },
+    { id: 6, name: 'Results', desc: 'Tables & narratives' },
+    { id: 7, name: 'Export', desc: 'Download Chapter 4' },
+  ];
 
-  // Auto-scroll to bottom when new messages arrive
-  const isFirstRender = useRef(true);
+  const quickActions = [
+    { icon: FileText, label: 'Define Objectives', color: 'bg-blue-500', action: 'objectives' },
+    { icon: Table2, label: 'Choose Variables', color: 'bg-purple-500', action: 'variables' },
+    { icon: BarChart3, label: 'Pick Analysis', color: 'bg-orange-500', action: 'analysis' },
+  ];
+
+  // Auto-scroll messages
   useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      return;
-    }
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Focus chat input when switching to analysis mode
-  useEffect(() => {
-    if (viewMode === 'analysis') {
-      chatInputRef.current?.focus();
-    }
-  }, [viewMode]);
-
-  // Start analysis session
-  const startAnalysis = (type: AnalysisType) => {
-    setAnalysisType(type);
-    setCurrentStage('plan');
-    setMessages([
-      {
-        id: '1',
-        role: 'assistant',
-        content: getInitialGreeting(type),
-        timestamp: new Date(),
-        stage: 'plan'
-      }
-    ]);
-    setViewMode('analysis');
-    setError(null);
-  };
-
-  // Send message to AI
-  const handleSendMessage = async () => {
-    if (!inputMessage.trim() || isLoading || !analysisType) return;
-
-    const userMessage: DataLabMessage = {
+  const addMessage = (role: 'user' | 'assistant', content: string) => {
+    const newMessage: ChatMessage = {
       id: Date.now().toString(),
-      role: 'user',
-      content: inputMessage.trim(),
-      timestamp: new Date(),
-      stage: currentStage
+      role,
+      content,
+      timestamp: new Date()
     };
+    setMessages(prev => [...prev, newMessage]);
+  };
 
-    setMessages(prev => [...prev, userMessage]);
-    setInputMessage('');
-    setIsLoading(true);
-    setError(null);
+  const handleSend = async () => {
+    if (!input.trim() || isProcessing) return;
+    
+    const userMessage = input.trim();
+    setInput('');
+    addMessage('user', userMessage);
+    setIsProcessing(true);
 
+    // Simple rule-based responses + AI for complex queries
     try {
-      const response = await sendDataLabMessage(
-        userMessage.content,
-        analysisType,
-        currentStage,
-        messages,
-        customContext || undefined
-      );
-
-      const assistantMessage: DataLabMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: response.content,
-        reasoningContent: response.reasoning,
-        timestamp: new Date(),
-        stage: currentStage
-      };
-
-      setMessages(prev => [...prev, assistantMessage]);
-      
-      // Clear custom context after use
-      if (customContext) {
-        setCustomContext('');
-        setShowCustomInput(false);
+      if (currentStep === 1) {
+        // Planning phase - capture objectives
+        setResearchObjectives(userMessage);
+        setTimeout(() => {
+          addMessage('assistant', 
+            `Great! I've noted your research objectives: "${userMessage}"\n\n` +
+            `Now let's import your dataset. Please upload your CSV or Excel file using the upload area on the right. ` +
+            `I'll automatically check data quality and generate descriptive statistics.`
+          );
+          setCurrentStep(2);
+        }, 800);
+      } else if (currentStep === 2 && !uploadedFile) {
+        addMessage('assistant', 
+          `Please upload your dataset first. You can drag and drop a CSV or Excel file in the upload area, or click to browse.`
+        );
+      } else {
+        // Use AI for analysis requests
+        await handleAnalysisRequest(userMessage);
       }
-    } catch (err) {
-      console.error('Data Lab AI error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to get response. Please try again.');
+    } catch (error) {
+      addMessage('assistant', 'Sorry, I encountered an error processing your request. Please try again.');
     } finally {
-      setIsLoading(false);
-      chatInputRef.current?.focus();
+      setIsProcessing(false);
     }
   };
 
-  // Handle key press
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
+  const handleAnalysisRequest = async (request: string) => {
+    const lowerRequest = request.toLowerCase();
+    
+    if (lowerRequest.includes('correlation') || lowerRequest.includes('relationship')) {
+      await runCorrelationAnalysis();
+    } else if (lowerRequest.includes('regression') || lowerRequest.includes('predict')) {
+      await runRegressionAnalysis();
+    } else if (lowerRequest.includes('compare') || lowerRequest.includes('difference')) {
+      await runComparisonAnalysis();
+    } else if (lowerRequest.includes('describe') || lowerRequest.includes('summary')) {
+      showDescriptiveStats();
+    } else {
+      // General AI response
+      addMessage('assistant', 
+        `I can help you with:\n\n` +
+        `• **Descriptive Statistics** - Summary of your variables\n` +
+        `• **Correlation Analysis** - Relationships between variables\n` +
+        `• **Regression Analysis** - Predictive modeling\n` +
+        `• **Comparison Tests** - t-tests, ANOVA, chi-square\n\n` +
+        `What would you like to analyze?`
+      );
     }
   };
 
-  // Handle file upload
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleFileDrop = async (e: React.DragEvent<HTMLDivElement> | React.ChangeEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    setDragOver(false);
+    
+    const file = 'dataTransfer' in e ? e.dataTransfer?.files[0] : e.target.files?.[0];
     if (!file) return;
 
     setUploadedFile(file);
-    setIsUploading(true);
-    setError(null);
+    setIsProcessing(true);
+    
+    addMessage('assistant', `📂 Uploading and analyzing "${file.name}"...`);
 
     try {
-      // 1. Import Data
-      const importResult = await importDataFile(file);
+      // Import dataset
+      const importResult = await dataAnalysisR1.importDataset(file);
       
-      if (!importResult.success || !importResult.datasetId) {
-        throw new Error(importResult.error || 'Failed to upload file');
+      if (!importResult.success) {
+        addMessage('assistant', `❌ Failed to import file: ${importResult.error}`);
+        setUploadedFile(null);
+        return;
       }
-      
-      setCurrentDatasetId(importResult.datasetId);
-      setCurrentStage('clean'); // Move to clean/profile stage
-      
-      // 2. Run Quality Check
-      const qualityResult = await runQualityCheck();
-      if (qualityResult.success && qualityResult.report) {
-        setQualityReport(qualityResult.report);
+
+      // Run quality check
+      const quality = dataAnalysisR1.runQualityCheck();
+      setQualityReport(quality);
+
+      // Get descriptive stats
+      const stats = dataAnalysisR1.getDescriptiveStats();
+      setDescriptiveStats(stats);
+
+      // Add quality report output
+      if (quality) {
+        const qualityOutput: GeneratedOutput = {
+          id: 'quality_' + Date.now(),
+          name: 'Data Quality Report',
+          type: 'document',
+          status: 'ready',
+          content: formatQualityReport(quality),
+          downloadFormat: 'txt'
+        };
+        setOutputs(prev => [...prev, qualityOutput]);
       }
-      
-      // 3. Get Descriptive Stats
-      const statsResult = await getDescriptiveStats();
-      if (statsResult.success && statsResult.statistics) {
-        setDescriptiveStats(statsResult.statistics);
+
+      // Add descriptive stats output
+      if (stats) {
+        const statsOutput: GeneratedOutput = {
+          id: 'descriptive_' + Date.now(),
+          name: 'Descriptive Statistics',
+          type: 'table',
+          status: 'ready',
+          data: stats,
+          content: formatDescriptiveStats(stats),
+          downloadFormat: 'csv'
+        };
+        setOutputs(prev => [...prev, statsOutput]);
       }
+
+      // Success message
+      const dataset = importResult.dataset!;
+      const issueCount = quality?.summary.total_issues || 0;
+      const qualityScore = quality?.summary.data_quality_score || 0;
+
+      addMessage('assistant',
+        `✅ **File uploaded successfully!**\n\n` +
+        `📊 **Dataset Summary:**\n` +
+        `• ${dataset.rows} rows, ${dataset.columns} columns\n` +
+        `• Data Quality Score: ${qualityScore}/100\n` +
+        `• Issues Found: ${issueCount}\n\n` +
+        `${issueCount > 0 ? 
+          `⚠️ I found some data quality issues. Check the "Data Quality Report" in outputs.\n\n` : 
+          `✨ Your data looks clean!\n\n`}` +
+        `I've generated descriptive statistics. You can now proceed with:\n` +
+        `• Data cleaning (if needed)\n` +
+        `• Correlation analysis\n` +
+        `• Regression analysis\n` +
+        `• Comparison tests\n\n` +
+        `What would you like to do next?`
+      );
+
+      setCurrentStep(3);
       
-      // 4. Update UI
-      setActiveTab('health');
-      
-      // 5. Add System Message
-      const issues = qualityResult.report?.summary.total_issues || 0;
-      const critical = qualityResult.report?.summary.critical_issues || 0;
-      
-      const analysisMsg = `I've uploaded and analyzed **${file.name}**.
-      
-      **Data Summary:**
-      - ${importResult.dataDictionary ? (importResult.dataDictionary as any).variables.length : '?'} variables
-      - ${importResult.preview ? (importResult.preview as any).total_rows : '?'} rows
-      
-      **Quality Check:**
-      - Found ${issues} potential issues (${critical} critical).
-      - Quality Score: ${qualityResult.report?.summary.data_quality_score || 0}/100
-      
-      I've populated the dashboard with details. Check the **Data Health** tab.
-      
-      Should we proceed to clean this data, or start analysis?`;
-      
-      setMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        role: 'assistant',
-        content: analysisMsg,
-        timestamp: new Date(),
-        stage: 'profile'
-      }]);
-      
-    } catch (err) {
-      console.error('Upload error:', err);
-      setError(err instanceof Error ? err.message : 'Upload failed');
-      setMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        role: 'assistant',
-        content: `❌ **Upload Failed**: ${err instanceof Error ? err.message : 'Unknown error'}. Please try again.`,
-        timestamp: new Date(),
-        stage: 'import'
-      }]);
+    } catch (error) {
+      console.error('File processing error:', error);
+      addMessage('assistant', `❌ Error processing file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setUploadedFile(null);
     } finally {
-      setIsUploading(false);
+      setIsProcessing(false);
     }
   };
 
-  // Reset session
-  const resetSession = () => {
-    setViewMode('selection');
-    setAnalysisType(null);
-    setCurrentStage('plan');
-    setMessages([]);
-    setInputMessage('');
-    setCustomContext('');
-    setUploadedFile(null);
-    setCurrentDatasetId(null);
-    setQualityReport(null);
-    setDescriptiveStats(null);
-    setLastResult(null);
-    setError(null);
+  const showDescriptiveStats = () => {
+    if (!descriptiveStats) {
+      addMessage('assistant', 'Please upload a dataset first.');
+      return;
+    }
+
+    const summary = formatDescriptiveStats(descriptiveStats);
+    addMessage('assistant', 
+      `📊 **Descriptive Statistics Summary:**\n\n${summary}\n\n` +
+      `The full statistics table is available in the outputs panel on the right.`
+    );
   };
 
-  // ============================================================================
-  // DASHBOARD COMPONENTS
-  // ============================================================================
+  const runCorrelationAnalysis = async () => {
+    if (!uploadedFile) {
+      addMessage('assistant', 'Please upload a dataset first.');
+      return;
+    }
 
-  const renderDataHealthTab = () => {
-    if (!qualityReport) return (
-      <div className="flex flex-col items-center justify-center h-full text-center p-8">
-        <Activity className={`w-12 h-12 mb-4 ${theme.textFaint}`} />
-        <p className={theme.textMuted}>Upload a dataset to see its health report.</p>
-      </div>
+    setIsProcessing(true);
+    addMessage('assistant', '🔄 Running correlation analysis...');
+
+    try {
+      const dataset = dataAnalysisR1.getCurrentDataset();
+      if (!dataset) {
+        throw new Error('No dataset loaded');
+      }
+
+      // Get continuous variables
+      const continuousVars = Object.entries(dataset.columnTypes)
+        .filter(([_, type]) => type === 'continuous')
+        .map(([name]) => name);
+
+      if (continuousVars.length < 2) {
+        addMessage('assistant', '⚠️ Need at least 2 continuous variables for correlation analysis.');
+        return;
+      }
+
+      const result = await dataAnalysisR1.runStatisticalAnalysis(
+        'correlation',
+        continuousVars.slice(0, 5), // Limit to 5 variables
+        researchObjectives || 'Examine relationships between variables'
+      );
+
+      if (result) {
+        const output: GeneratedOutput = {
+          id: 'correlation_' + Date.now(),
+          name: 'Correlation Analysis',
+          type: 'table',
+          status: 'ready',
+          data: result,
+          content: result.statistical_output,
+          downloadFormat: 'txt'
+        };
+        setOutputs(prev => [...prev, output]);
+
+        addMessage('assistant', 
+          `✅ **Correlation Analysis Complete**\n\n` +
+          `${result.interpretation}\n\n` +
+          `The detailed correlation matrix is available in the outputs panel.`
+        );
+        setCurrentStep(5);
+      }
+    } catch (error) {
+      addMessage('assistant', `❌ Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const runRegressionAnalysis = async () => {
+    if (!uploadedFile) {
+      addMessage('assistant', 'Please upload a dataset first.');
+      return;
+    }
+
+    setIsProcessing(true);
+    addMessage('assistant', '🔄 Running regression analysis...');
+
+    try {
+      const dataset = dataAnalysisR1.getCurrentDataset();
+      if (!dataset) throw new Error('No dataset loaded');
+
+      const continuousVars = Object.entries(dataset.columnTypes)
+        .filter(([_, type]) => type === 'continuous')
+        .map(([name]) => name);
+
+      if (continuousVars.length < 2) {
+        addMessage('assistant', '⚠️ Need at least 2 continuous variables for regression.');
+        return;
+      }
+
+      const result = await dataAnalysisR1.runStatisticalAnalysis(
+        'linear_regression',
+        continuousVars.slice(0, 4),
+        researchObjectives || 'Predict outcome variable'
+      );
+
+      if (result) {
+        const output: GeneratedOutput = {
+          id: 'regression_' + Date.now(),
+          name: 'Regression Analysis',
+          type: 'document',
+          status: 'ready',
+          content: result.statistical_output,
+          downloadFormat: 'txt'
+        };
+        setOutputs(prev => [...prev, output]);
+
+        addMessage('assistant',
+          `✅ **Regression Analysis Complete**\n\n` +
+          `${result.interpretation}\n\n` +
+          `**APA Format:**\n${result.apa_format}\n\n` +
+          `Full results are available in the outputs panel.`
+        );
+        setCurrentStep(5);
+      }
+    } catch (error) {
+      addMessage('assistant', `❌ Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const runComparisonAnalysis = async () => {
+    addMessage('assistant', 
+      `For comparison tests, I need to know:\n\n` +
+      `• What groups are you comparing?\n` +
+      `• What outcome variable?\n` +
+      `• Independent samples or paired?\n\n` +
+      `Please provide more details or I'll run a general t-test.`
     );
+  };
 
-    const { summary, missing_data, duplicates, outliers } = qualityReport;
+  const handleQuickAction = (action: string) => {
+    if (action === 'objectives') {
+      setInput('My research objective is to ');
+    } else if (action === 'variables') {
+      if (descriptiveStats) {
+        const vars = [
+          ...Object.keys(descriptiveStats.continuous),
+          ...Object.keys(descriptiveStats.categorical)
+        ].join(', ');
+        addMessage('assistant', `📋 **Available Variables:**\n\n${vars}\n\nWhich variables would you like to analyze?`);
+      } else {
+        addMessage('assistant', 'Please upload a dataset first to see available variables.');
+      }
+    } else if (action === 'analysis') {
+      addMessage('assistant', 
+        `📊 **Available Analyses:**\n\n` +
+        `1. **Correlation** - Examine relationships\n` +
+        `2. **Regression** - Predict outcomes\n` +
+        `3. **t-test/ANOVA** - Compare groups\n` +
+        `4. **Chi-square** - Test associations\n\n` +
+        `What type of analysis do you need?`
+      );
+    }
+  };
 
-    return (
-      <div className="space-y-6">
-        {/* Score Card */}
-        <div className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-white border-slate-200'}`}>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className={`font-semibold ${theme.text}`}>Data Health Score</h3>
-            <span className={`text-2xl font-bold ${
-              summary.data_quality_score > 80 ? 'text-emerald-500' : 
-              summary.data_quality_score > 50 ? 'text-amber-500' : 'text-red-500'
-            }`}>
-              {summary.data_quality_score}/100
-            </span>
+  const handleDownload = (output: GeneratedOutput) => {
+    if (!output.content) return;
+
+    const blob = new Blob([output.content], { type: 'text/plain;charset=utf-8' });
+    saveAs(blob, `${output.name}.${output.downloadFormat || 'txt'}`);
+  };
+
+  const handleDownloadAll = () => {
+    outputs.forEach(output => {
+      if (output.status === 'ready' && output.content) {
+        setTimeout(() => handleDownload(output), 100);
+      }
+    });
+  };
+
+  const exportChapter4 = async () => {
+    if (outputs.length === 0) {
+      addMessage('assistant', '⚠️ No results to export yet. Please complete some analyses first.');
+      return;
+    }
+
+    setIsProcessing(true);
+    addMessage('assistant', '📄 Generating Chapter 4...');
+
+    try {
+      const chapter4Content = generateChapter4(outputs, researchObjectives, qualityReport, descriptiveStats);
+      
+      const blob = new Blob([chapter4Content], { type: 'text/plain;charset=utf-8' });
+      saveAs(blob, 'Chapter_4_Results.txt');
+
+      addMessage('assistant', 
+        `✅ **Chapter 4 exported successfully!**\n\n` +
+        `The file includes:\n` +
+        `• Introduction\n` +
+        `• Data quality assessment\n` +
+        `• Descriptive statistics\n` +
+        `• All analysis results\n` +
+        `• APA-formatted reporting\n\n` +
+        `You can now edit and format it in Word.`
+      );
+      setCurrentStep(7);
+    } catch (error) {
+      addMessage('assistant', '❌ Failed to export Chapter 4.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <div className="h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
+      {/* Header */}
+      <header className="bg-white dark:bg-gray-800 border-b dark:border-gray-700 px-6 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-gradient-to-br from-orange-400 to-orange-500 rounded-xl flex items-center justify-center">
+            <BarChart3 className="w-5 h-5 text-white" />
           </div>
-          <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
-            <div 
-              className={`h-2.5 rounded-full ${
-                summary.data_quality_score > 80 ? 'bg-emerald-500' : 
-                summary.data_quality_score > 50 ? 'bg-amber-500' : 'bg-red-500'
-              }`} 
-              style={{ width: `${summary.data_quality_score}%` }}
-            ></div>
-          </div>
-          <div className="mt-4 grid grid-cols-3 gap-4 text-center">
-            <div className={`p-3 rounded-xl ${darkMode ? 'bg-slate-900/50' : 'bg-slate-50'}`}>
-              <div className={`text-lg font-bold ${duplicates.exact_duplicates > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
-                {duplicates.exact_duplicates}
-              </div>
-              <div className={`text-xs ${theme.textFaint}`}>Duplicates</div>
-            </div>
-            <div className={`p-3 rounded-xl ${darkMode ? 'bg-slate-900/50' : 'bg-slate-50'}`}>
-              <div className={`text-lg font-bold ${missing_data.total_missing_cells > 0 ? 'text-amber-500' : 'text-emerald-500'}`}>
-                {missing_data.overall_missing_percentage}%
-              </div>
-              <div className={`text-xs ${theme.textFaint}`}>Missing</div>
-            </div>
-            <div className={`p-3 rounded-xl ${darkMode ? 'bg-slate-900/50' : 'bg-slate-50'}`}>
-              <div className={`text-lg font-bold ${outliers.columns_with_outliers > 0 ? 'text-blue-500' : 'text-emerald-500'}`}>
-                {outliers.columns_with_outliers}
-              </div>
-              <div className={`text-xs ${theme.textFaint}`}>Outlier Vars</div>
-            </div>
+          <div>
+            <h1 className="font-semibold text-gray-900 dark:text-white">Data Analysis Lab</h1>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Students Companion</p>
           </div>
         </div>
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-gray-500 dark:text-gray-400">
+            Session: <span className="font-medium text-gray-700 dark:text-gray-300">Quantitative Analysis</span>
+          </span>
+          <div className="flex items-center gap-2 bg-orange-50 dark:bg-orange-900/30 px-3 py-1.5 rounded-full">
+            <span className="text-orange-600 dark:text-orange-400 font-semibold text-sm">✦ Unlimited</span>
+          </div>
+        </div>
+      </header>
 
-        {/* Issues List */}
-        <div className="space-y-3">
-          <h4 className={`text-sm font-medium ${theme.textMuted} uppercase`}>Detected Issues</h4>
-          
-          {missing_data.high_missing_columns.map(col => (
-            <div key={col} className={`flex items-center gap-3 p-3 rounded-xl border ${darkMode ? 'bg-red-900/10 border-red-900/30' : 'bg-red-50 border-red-100'}`}>
-              <AlertTriangle className="w-5 h-5 text-red-500" />
-              <div>
-                <p className={`text-sm font-medium ${theme.text}`}>High Missing Data: {col}</p>
-                <p className={`text-xs ${theme.textFaint}`}>More than 20% values are missing. Suggestion: Drop or impute.</p>
-              </div>
-              <button 
-                onClick={() => setInputMessage(`Help me handle missing data in ${col}`)}
-                className={`ml-auto text-xs px-3 py-1.5 rounded-lg ${darkMode ? 'bg-red-900/30 text-red-300' : 'bg-white text-red-600 border border-red-200'}`}
-              >
-                Fix
-              </button>
+      {/* Progress Steps */}
+      <div className="bg-white dark:bg-gray-800 border-b dark:border-gray-700 px-6 py-4">
+        <div className="flex items-center justify-between max-w-4xl mx-auto">
+          {steps.map((step, idx) => (
+            <div key={step.id} className="flex items-center">
+              <div className="flex flex-col items-center">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-all ${
+                  step.id < currentStep ? 'bg-green-500 text-white' :
+                  step.id === currentStep ? 'bg-orange-500 text-white ring-4 ring-orange-100 dark:ring-orange-900' :
+                  'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500'
+                }`}>
+                  {step.id < currentStep ? <CheckCircle2 className="w-5 h-5" /> : step.id}
+          </div>
+                <span className={`text-xs mt-1.5 font-medium ${
+                  step.id === currentStep ? 'text-orange-600 dark:text-orange-400' : 'text-gray-500 dark:text-gray-400'
+                }`}>
+                  {step.name}
+                </span>
+        </div>
+              {idx < steps.length - 1 && (
+                <div className={`w-12 h-0.5 mx-2 mt-[-12px] ${
+                  step.id < currentStep ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-700'
+                }`} />
+              )}
             </div>
           ))}
-
-          {duplicates.exact_duplicates > 0 && (
-            <div className={`flex items-center gap-3 p-3 rounded-xl border ${darkMode ? 'bg-amber-900/10 border-amber-900/30' : 'bg-amber-50 border-amber-100'}`}>
-              <Layers className="w-5 h-5 text-amber-500" />
-              <div>
-                <p className={`text-sm font-medium ${theme.text}`}>Duplicate Rows Found</p>
-                <p className={`text-xs ${theme.textFaint}`}>{duplicates.exact_duplicates} exact duplicates detected.</p>
-              </div>
-              <button 
-                onClick={() => setInputMessage('Remove duplicate rows')}
-                className={`ml-auto text-xs px-3 py-1.5 rounded-lg ${darkMode ? 'bg-amber-900/30 text-amber-300' : 'bg-white text-amber-600 border border-amber-200'}`}
-              >
-                Remove
-              </button>
-            </div>
-          )}
-
-          {summary.total_issues === 0 && (
-            <div className={`flex items-center gap-3 p-4 rounded-xl border ${darkMode ? 'bg-emerald-900/10 border-emerald-900/30' : 'bg-emerald-50 border-emerald-100'}`}>
-              <CheckCircle2 className="w-6 h-6 text-emerald-500" />
-              <div>
-                <p className={`text-sm font-medium ${theme.text}`}>Clean Dataset</p>
-                <p className={`text-xs ${theme.textFaint}`}>No critical issues found. You are ready to analyze!</p>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  const renderVariablesTab = () => {
-    if (!descriptiveStats) return (
-      <div className="flex flex-col items-center justify-center h-full text-center p-8">
-        <Table className={`w-12 h-12 mb-4 ${theme.textFaint}`} />
-        <p className={theme.textMuted}>Upload data to see variable summaries.</p>
-      </div>
-    );
-
-    return (
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div className={`p-4 rounded-xl border ${theme.card}`}>
-            <h4 className={`text-sm font-medium ${theme.text} mb-2`}>Continuous</h4>
-            <div className="space-y-2">
-              {Object.keys(descriptiveStats.continuous).map(v => (
-                <div key={v} className="flex justify-between items-center text-xs">
-                  <span className={theme.textMuted}>{v}</span>
-                  <span className="font-mono bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">
-                    μ={descriptiveStats.continuous[v].mean.toFixed(1)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className={`p-4 rounded-xl border ${theme.card}`}>
-            <h4 className={`text-sm font-medium ${theme.text} mb-2`}>Categorical</h4>
-            <div className="space-y-2">
-              {Object.keys(descriptiveStats.categorical).map(v => (
-                <div key={v} className="flex justify-between items-center text-xs">
-                  <span className={theme.textMuted}>{v}</span>
-                  <span className="font-mono bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded dark:bg-purple-900 dark:text-purple-300">
-                    {descriptiveStats.categorical[v].unique_values} cats
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-        
-        {/* Table 1 Preview */}
-        <div className={`p-4 rounded-xl border ${theme.card}`}>
-          <div className="flex items-center justify-between mb-4">
-            <h4 className={`font-semibold ${theme.text}`}>Sample Characteristics (Table 1)</h4>
-            <button 
-              onClick={() => setInputMessage("Generate APA Table 1")}
-              className="text-xs text-blue-500 hover:underline"
-            >
-              Generate Full Table
-            </button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className={`border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
-                <tr>
-                  <th className="py-2 px-2">Variable</th>
-                  <th className="py-2 px-2">Mean (SD) / n (%)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(descriptiveStats.continuous).slice(0, 3).map(([k, v]) => (
-                  <tr key={k} className={`border-b ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
-                    <td className={`py-2 px-2 ${theme.text}`}>{k}</td>
-                    <td className={`py-2 px-2 ${theme.textMuted}`}>{v.mean.toFixed(2)} ({v.std.toFixed(2)})</td>
-                  </tr>
-                ))}
-                {Object.entries(descriptiveStats.categorical).slice(0, 3).map(([k, v]) => (
-                  <tr key={k} className={`border-b ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
-                    <td className={`py-2 px-2 ${theme.text}`}>{k}</td>
-                    <td className={`py-2 px-2 ${theme.textMuted}`}>
-                      {v.categories[0].category}: {v.categories[0].n} ({v.categories[0].percentage}%)
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ============================================================================
-  // RENDER: SELECTION MODE
-  // ============================================================================
-  if (viewMode === 'selection') {
-  return (
-    <div className="animate-fade-in">
-      {/* Header */}
-      <div className="flex items-start justify-between mb-6">
-        <div className="flex items-center gap-3">
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${darkMode ? 'bg-violet-900/60' : 'bg-violet-100'}`}>
-              <FlaskConical className={`w-6 h-6 ${darkMode ? 'text-violet-400' : 'text-violet-600'}`} strokeWidth={1.5} />
-          </div>
-          <div>
-            <h1 className={`text-2xl font-bold ${theme.text}`}>Data Analysis Lab</h1>
-              <p className={`text-sm ${theme.textMuted}`}>AI-powered analysis with Python accuracy</p>
-            </div>
-          </div>
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${backendReady ? (darkMode ? 'bg-emerald-900/40 text-emerald-400' : 'bg-emerald-50 text-emerald-700') : (darkMode ? 'bg-amber-900/40 text-amber-400' : 'bg-amber-50 text-amber-700')} text-xs font-medium`}>
-            <Activity className="w-3.5 h-3.5" />
-            {backendReady ? 'Python Engine Ready' : 'Connecting to Engine...'}
-          </div>
-        </div>
-
-        {/* Analysis Type Selection Cards - keeping existing good design */}
-        <div className="mb-8">
-          <h2 className={`text-lg font-semibold ${theme.text} mb-2`}>Choose Your Analysis Type</h2>
-          <p className={`text-sm ${theme.textMuted} mb-6`}>Select the approach that matches your research methodology</p>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Quantitative */}
-            <button
-              onClick={() => startAnalysis('quantitative')}
-              className={`p-6 rounded-2xl border text-left transition-all hover:shadow-lg hover:-translate-y-1 group ${
-                darkMode
-                  ? 'bg-gradient-to-br from-blue-900/40 to-slate-800/60 border-blue-800/50 hover:border-blue-600'
-                  : 'bg-gradient-to-br from-blue-50 to-white border-blue-200 hover:border-blue-400'
-              }`}
-            >
-              <div className={`w-14 h-14 rounded-xl flex items-center justify-center mb-4 ${darkMode ? 'bg-blue-800/60' : 'bg-blue-100'} group-hover:scale-110 transition-transform`}>
-                <BarChart3 className={`w-7 h-7 ${darkMode ? 'text-blue-400' : 'text-blue-600'}`} strokeWidth={1.5} />
-              </div>
-              <h3 className={`font-bold text-lg ${theme.text} mb-2`}>Quantitative</h3>
-              <p className={`text-sm ${theme.textFaint} mb-4`}>Statistical analysis for surveys and experiments</p>
-              <ul className={`text-xs ${theme.textMuted} space-y-1`}>
-                <li className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-blue-500" /> Descriptive Statistics</li>
-                <li className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-blue-500" /> Regression & ANOVA</li>
-                <li className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-blue-500" /> Accurate Python Stats</li>
-              </ul>
-            </button>
-
-            {/* Qualitative */}
-            <button
-              onClick={() => startAnalysis('qualitative')}
-              className={`p-6 rounded-2xl border text-left transition-all hover:shadow-lg hover:-translate-y-1 group ${
-                darkMode
-                  ? 'bg-gradient-to-br from-purple-900/40 to-slate-800/60 border-purple-800/50 hover:border-purple-600'
-                  : 'bg-gradient-to-br from-purple-50 to-white border-purple-200 hover:border-purple-400'
-              }`}
-            >
-              <div className={`w-14 h-14 rounded-xl flex items-center justify-center mb-4 ${darkMode ? 'bg-purple-800/60' : 'bg-purple-100'} group-hover:scale-110 transition-transform`}>
-                <MessageSquareText className={`w-7 h-7 ${darkMode ? 'text-purple-400' : 'text-purple-600'}`} strokeWidth={1.5} />
-              </div>
-              <h3 className={`font-bold text-lg ${theme.text} mb-2`}>Qualitative</h3>
-              <p className={`text-sm ${theme.textFaint} mb-4`}>Thematic analysis for interview transcripts</p>
-              <ul className={`text-xs ${theme.textMuted} space-y-1`}>
-                <li className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-purple-500" /> Open & Axial Coding</li>
-                <li className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-purple-500" /> Theme Development</li>
-                <li className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-purple-500" /> Codebook Generation</li>
-              </ul>
-            </button>
-
-            {/* Mixed Methods */}
-            <button
-              onClick={() => startAnalysis('mixed')}
-              className={`p-6 rounded-2xl border text-left transition-all hover:shadow-lg hover:-translate-y-1 group ${
-                darkMode
-                  ? 'bg-gradient-to-br from-amber-900/40 to-slate-800/60 border-amber-800/50 hover:border-amber-600'
-                  : 'bg-gradient-to-br from-amber-50 to-white border-amber-200 hover:border-amber-400'
-              }`}
-            >
-              <div className={`w-14 h-14 rounded-xl flex items-center justify-center mb-4 ${darkMode ? 'bg-amber-800/60' : 'bg-amber-100'} group-hover:scale-110 transition-transform`}>
-                <PieChart className={`w-7 h-7 ${darkMode ? 'text-amber-400' : 'text-amber-600'}`} strokeWidth={1.5} />
-              </div>
-              <h3 className={`font-bold text-lg ${theme.text} mb-2`}>Mixed Methods</h3>
-              <p className={`text-sm ${theme.textFaint} mb-4`}>Integrate quant and qual data</p>
-              <ul className={`text-xs ${theme.textMuted} space-y-1`}>
-                <li className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-amber-500" /> Joint Display Tables</li>
-                <li className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-amber-500" /> Triangulation Matrix</li>
-                <li className="flex items-center gap-2"><CheckCircle2 className="w-3 h-3 text-amber-500" /> Integration Narrative</li>
-              </ul>
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ============================================================================
-  // RENDER: ANALYSIS MODE (Redesigned Split View)
-  // ============================================================================
-  return (
-    <div className="animate-fade-in flex flex-col h-full">
-      {/* Workspace Header */}
-      <div className={`flex items-center justify-between px-4 py-3 mb-4 rounded-xl border ${darkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-white border-slate-200 shadow-sm'}`}>
-        <div className="flex items-center gap-3">
-          <button onClick={resetSession} className={`p-1.5 rounded-lg transition-colors ${darkMode ? 'hover:bg-slate-700' : 'hover:bg-slate-100'}`}>
-            <ArrowLeft className={`w-5 h-5 ${theme.textMuted}`} />
-          </button>
-          <div>
-            <h2 className={`text-sm font-bold ${theme.text}`}>
-              {analysisType === 'quantitative' ? 'Quantitative Analysis' : analysisType === 'qualitative' ? 'Qualitative Analysis' : 'Mixed Methods'}
-            </h2>
-            <p className={`text-xs ${theme.textFaint}`}>
-              {uploadedFile ? uploadedFile.name : 'No data uploaded'}
-            </p>
-          </div>
-        </div>
-        
-        {/* Quick Stats or Actions */}
-        {qualityReport && (
-          <div className="flex gap-4 text-xs">
-            <div className={`flex items-center gap-1.5 ${theme.textMuted}`}>
-              <Table className="w-3.5 h-3.5" />
-              <span>{qualityReport.dataset_info.rows} Rows</span>
-            </div>
-            <div className={`flex items-center gap-1.5 ${qualityReport.summary.critical_issues > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
-              <Activity className="w-3.5 h-3.5" />
-              <span>Health: {qualityReport.summary.data_quality_score}%</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="flex-1 flex gap-4 min-h-0">
-        
-        {/* LEFT PANEL: Chat Interface (Supervisor) */}
-        <div className={`w-[40%] flex flex-col rounded-2xl border ${theme.card} overflow-hidden shadow-sm`}>
-          <div className={`p-3 border-b ${theme.divider} bg-opacity-50`}>
-            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-emerald-500">
-              <Brain className="w-3.5 h-3.5" />
-              AI Supervisor
         </div>
       </div>
 
-          <div className="flex-1 p-4 overflow-y-auto bg-opacity-30">
+      {/* Main Content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Panel - Chat */}
+        <div className="w-1/2 flex flex-col border-r dark:border-gray-700 bg-white dark:bg-gray-800">
+          {/* Chat Messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {messages.map((msg) => (
-              <div key={msg.id} className={`flex gap-3 mb-4 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                <div className={`w-7 h-7 rounded-lg flex-shrink-0 flex items-center justify-center ${
-                  msg.role === 'assistant' 
-                    ? 'bg-emerald-600'
-                    : 'bg-blue-600'
+              <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${
+                  msg.role === 'user' 
+                    ? 'bg-orange-500 text-white rounded-br-md' 
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-bl-md'
                 }`}>
-                  {msg.role === 'assistant' ? <Brain className="w-3.5 h-3.5 text-white" /> : <span className="text-white text-[10px] font-bold">ME</span>}
-                </div>
-                <div className={`max-w-[85%] p-3 rounded-2xl text-sm ${
-                  msg.role === 'assistant'
-                    ? darkMode ? 'bg-slate-700/50 text-slate-200' : 'bg-slate-100 text-slate-800'
-                    : 'bg-blue-600 text-white shadow-md'
-                }`}>
-                  <div className="whitespace-pre-wrap">
-                    {msg.content.split('\n').map((line, i) => (
-                      <p key={i} className="mb-1 last:mb-0">{line}</p>
-                    ))}
-                  </div>
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                 </div>
               </div>
             ))}
-            {isLoading && (
-              <div className="flex gap-2 items-center text-xs text-emerald-500 ml-10">
-                <Loader2 className="w-3 h-3 animate-spin" />
-                Processing...
+            {isProcessing && (
+              <div className="flex justify-start">
+                <div className="bg-gray-100 dark:bg-gray-700 rounded-2xl px-4 py-3 rounded-bl-md">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-orange-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                    <div className="w-2 h-2 bg-orange-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                    <div className="w-2 h-2 bg-orange-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                  </div>
+                </div>
               </div>
             )}
             <div ref={messagesEndRef} />
         </div>
 
+          {/* Quick Actions */}
+          <div className="px-4 py-3 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+            <div className="flex gap-2 mb-3">
+              {quickActions.map((action, idx) => (
+                <button 
+                  key={idx} 
+                  onClick={() => handleQuickAction(action.action)}
+                  className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <action.icon className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Input Area */}
-          <div className={`p-4 border-t ${theme.divider} bg-opacity-50`}>
-            <div className="flex items-center gap-2 mb-2">
-               <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileUpload}
-                accept=".csv,.xlsx,.xls,.sav"
-                className="hidden"
-              />
-              <button 
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isUploading}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  darkMode ? 'bg-slate-700 hover:bg-slate-600 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                }`}
-              >
-                {isUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                Upload Data
+          <div className="p-4 border-t dark:border-gray-700">
+            <div className="flex items-center gap-2">
+              <button className="p-2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
+                <Lightbulb className="w-5 h-5" />
               </button>
-              
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+                  placeholder="Describe your analysis needs..."
+                  disabled={isProcessing}
+                  className="w-full px-4 py-3 bg-gray-100 dark:bg-gray-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white dark:focus:bg-gray-600"
+                />
+              </div>
               <button 
-                onClick={() => setShowCustomInput(!showCustomInput)}
-                className={`p-1.5 rounded-lg ${showCustomInput ? 'bg-amber-100 text-amber-600' : theme.textFaint}`}
+                onClick={handleSend}
+                disabled={isProcessing || !input.trim()}
+                className="p-3 bg-orange-500 text-white rounded-xl hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Lightbulb className="w-4 h-4" />
-        </button>
-      </div>
-
-            {showCustomInput && (
-              <textarea
-                value={customContext}
-                onChange={(e) => setCustomContext(e.target.value)}
-                placeholder="Supervisor instructions..."
-                className={`w-full p-2 mb-2 rounded-lg text-xs border ${theme.input} resize-none`}
-                rows={2}
-              />
-            )}
-
-            <div className={`flex items-center gap-2 ${theme.input} rounded-xl px-3 py-2 border`}>
-              <input
-                ref={chatInputRef}
-                type="text"
-                value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder="Type your instruction..."
-                className={`flex-1 bg-transparent text-sm outline-none ${theme.text}`}
-                disabled={isLoading}
-              />
-              <button
-                onClick={handleSendMessage}
-                disabled={!inputMessage.trim() || isLoading}
-                className={`p-1.5 rounded-lg transition-all ${
-                  inputMessage.trim() ? 'bg-blue-600 text-white' : theme.textFaint
-                }`}
-              >
-                <Send className="w-4 h-4" />
+                <Send className="w-5 h-5" />
               </button>
             </div>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-2 text-center">Powered by DeepSeek R1 Reasoner</p>
           </div>
         </div>
 
-        {/* RIGHT PANEL: Smart Dashboard (Lab Bench) */}
-        <div className={`flex-1 flex flex-col rounded-2xl border ${theme.card} overflow-hidden shadow-sm`}>
-          {/* Dashboard Tabs */}
-          <div className={`flex items-center px-2 border-b ${theme.divider}`}>
-            {[
-              { id: 'overview', label: 'Overview', icon: PieChart },
-              { id: 'health', label: 'Data Health', icon: Activity },
-              { id: 'variables', label: 'Variables', icon: Table },
-              { id: 'results', label: 'Results', icon: FileText },
-            ].map(tab => (
+        {/* Right Panel - Workspace */}
+        <div className="w-1/2 flex flex-col bg-gray-50 dark:bg-gray-900 p-4">
+          {/* Upload Area */}
+          <div 
+            className={`border-2 border-dashed rounded-xl p-8 text-center mb-4 transition-all cursor-pointer ${
+              dragOver ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20' : 
+              uploadedFile ? 'border-green-500 bg-green-50 dark:bg-green-900/20' : 
+              'border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-orange-400'
+            }`}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleFileDrop}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <input 
+              ref={fileInputRef}
+              type="file" 
+              className="hidden" 
+              onChange={handleFileDrop} 
+              accept=".csv,.xlsx,.xls" 
+            />
+            {uploadedFile ? (
+              <div className="flex items-center justify-center gap-3">
+                <FileSpreadsheet className="w-10 h-10 text-green-500" />
+                <div className="text-left">
+                  <p className="font-medium text-gray-800 dark:text-gray-200">{uploadedFile.name}</p>
+                  <p className="text-sm text-green-600 dark:text-green-400">✓ File uploaded successfully</p>
+                </div>
             <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4 py-3 text-xs font-medium border-b-2 transition-colors ${
-                  activeTab === tab.id
-                    ? `border-blue-500 ${darkMode ? 'text-blue-400' : 'text-blue-600'}`
-                    : `border-transparent ${theme.textMuted} hover:${theme.text}`
-                }`}
-              >
-                <tab.icon className="w-3.5 h-3.5" />
-                {tab.label}
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    setUploadedFile(null);
+                    setOutputs([]);
+                    setQualityReport(null);
+                    setDescriptiveStats(null);
+                    dataAnalysisR1.clearCurrentDataset();
+                  }}
+                  className="ml-4 p-2 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg text-red-500"
+                >
+                  <X className="w-5 h-5" />
             </button>
-          ))}
-        </div>
-
-          <div className="flex-1 p-6 overflow-y-auto bg-slate-50/50 dark:bg-slate-900/20">
-            {activeTab === 'overview' && (
-              <div className="flex flex-col items-center justify-center h-full text-center">
-                {!currentDatasetId ? (
-                  <div className="max-w-md space-y-4">
-                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mx-auto ${darkMode ? 'bg-blue-900/30' : 'bg-blue-50'}`}>
-                      <Upload className={`w-8 h-8 ${darkMode ? 'text-blue-400' : 'text-blue-600'}`} />
-                    </div>
-                    <h3 className={`text-lg font-semibold ${theme.text}`}>Ready to Analyze</h3>
-                    <p className={theme.textMuted}>
-                      Upload your CSV, Excel, or SPSS file to the left. I'll immediately scan it for quality issues and suggest the best statistical tests.
-                    </p>
             </div>
                 ) : (
-                  <div className="w-full max-w-2xl space-y-6">
-                    {/* File Card */}
-                    <div className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-                      <div className="flex items-center gap-4 mb-6">
-                        <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600">
-                          <FileSpreadsheet className="w-6 h-6" />
-          </div>
-                        <div className="text-left">
-                          <h3 className={`font-bold ${theme.text}`}>{uploadedFile?.name}</h3>
-                          <p className={`text-sm ${theme.textMuted}`}>
-                            {qualityReport?.dataset_info.rows} rows • {qualityReport?.dataset_info.columns} variables
-                          </p>
-            </div>
+              <>
+                <Upload className={`w-12 h-12 mx-auto mb-3 ${dragOver ? 'text-orange-500' : 'text-gray-400'}`} />
+                <p className="font-medium text-gray-700 dark:text-gray-300">Drop your dataset here</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">CSV, Excel (.xlsx, .xls) supported</p>
+              </>
+            )}
           </div>
                       
-                      {/* Recommendations */}
-                      <div className="grid grid-cols-2 gap-4">
+          {/* Generated Outputs */}
+          <div className="flex-1 bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 overflow-hidden flex flex-col">
+            <div className="px-4 py-3 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex items-center justify-between">
+              <h3 className="font-semibold text-gray-800 dark:text-gray-200">Generated Outputs</h3>
+              {outputs.length > 0 && (
                         <button 
-                          onClick={() => { setActiveTab('health'); setInputMessage('Show me the data issues.'); }}
-                          className={`p-4 rounded-xl border text-left transition-all ${darkMode ? 'bg-slate-900/50 border-slate-700 hover:border-slate-600' : 'bg-slate-50 border-slate-200 hover:border-blue-300'}`}
+                  onClick={handleDownloadAll}
+                  className="text-sm text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 font-medium flex items-center gap-1"
                         >
-                          <Activity className="w-5 h-5 text-emerald-500 mb-2" />
-                          <h4 className={`font-medium ${theme.text}`}>Check Quality</h4>
-                          <p className={`text-xs ${theme.textMuted}`}>Review missing values & outliers</p>
+                  <Download className="w-4 h-4" /> Download All
                         </button>
+              )}
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {outputs.length > 0 ? outputs.map((output) => (
+                <div key={output.id} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors group">
+                  <div className="flex items-center gap-3">
+                    {output.type === 'table' ? (
+                      <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
+                        <Table2 className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                      </div>
+                    ) : output.type === 'chart' ? (
+                      <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900 rounded-lg flex items-center justify-center">
+                        <BarChart3 className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                      </div>
+                    ) : (
+                      <div className="w-10 h-10 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center">
+                        <FileText className="w-5 h-5 text-green-600 dark:text-green-400" />
+                      </div>
+                    )}
+                    <div>
+                      <p className="font-medium text-gray-800 dark:text-gray-200">{output.name}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Ready to download</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button 
-                          onClick={() => { setActiveTab('variables'); setInputMessage('Describe the key variables.'); }}
-                          className={`p-4 rounded-xl border text-left transition-all ${darkMode ? 'bg-slate-900/50 border-slate-700 hover:border-slate-600' : 'bg-slate-50 border-slate-200 hover:border-blue-300'}`}
+                      onClick={() => handleDownload(output)}
+                      className="p-2 hover:bg-orange-100 dark:hover:bg-orange-900/30 rounded-lg text-orange-500 dark:text-orange-400 hover:text-orange-600 dark:hover:text-orange-300"
                         >
-                          <Search className="w-5 h-5 text-blue-500 mb-2" />
-                          <h4 className={`font-medium ${theme.text}`}>Explore Data</h4>
-                          <p className={`text-xs ${theme.textMuted}`}>View descriptive statistics</p>
+                      <Download className="w-4 h-4" />
                         </button>
             </div>
           </div>
+              )) : (
+                <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
+                  <FileText className="w-12 h-12 mb-2" />
+                  <p className="text-sm">No outputs generated yet</p>
+                  <p className="text-xs">Complete the analysis steps to see results here</p>
         </div>
                 )}
               </div>
-            )}
 
-            {activeTab === 'health' && renderDataHealthTab()}
-            
-            {activeTab === 'variables' && renderVariablesTab()}
-            
-            {activeTab === 'results' && (
-              <div className="flex flex-col items-center justify-center h-full">
-                <FileText className={`w-12 h-12 mb-4 ${theme.textFaint}`} />
-                <p className={theme.textMuted}>Analysis results will appear here.</p>
-                <p className={`text-xs ${theme.textFaint} mt-2`}>Try asking: "Run a correlation between..."</p>
+            {/* Export Chapter 4 Button */}
+            {outputs.length > 0 && (
+              <div className="p-4 border-t dark:border-gray-700 bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/20">
+                <button 
+                  onClick={exportChapter4}
+                  disabled={isProcessing}
+                  className="w-full py-3 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-xl font-semibold hover:from-orange-600 hover:to-amber-600 transition-all flex items-center justify-center gap-2 shadow-lg shadow-orange-200 dark:shadow-orange-900/30 disabled:opacity-50"
+                >
+                  <Download className="w-5 h-5" />
+                  Export Complete Chapter 4
+                </button>
               </div>
             )}
               </div>
@@ -772,4 +688,120 @@ export default function DataLab() {
         </div>
     </div>
   );
+}
+
+// Helper Functions
+
+function formatQualityReport(report: QualityReport): string {
+  return `DATA QUALITY REPORT
+==================
+
+Dataset Information:
+• Rows: ${report.dataset_info.rows}
+• Columns: ${report.dataset_info.columns}
+• Variables: ${report.dataset_info.column_names.join(', ')}
+
+Quality Score: ${report.summary.data_quality_score}/100
+
+Duplicates:
+• Exact duplicates: ${report.duplicates.exact_duplicates} (${report.duplicates.percentage.toFixed(1)}%)
+
+Missing Data:
+• Total missing cells: ${report.missing_data.total_missing_cells}
+• Overall missing: ${report.missing_data.overall_missing_percentage.toFixed(1)}%
+${report.missing_data.high_missing_columns.length > 0 ? 
+  `• Columns with high missing data: ${report.missing_data.high_missing_columns.join(', ')}` : 
+  '• No columns with high missing data'}
+
+Outliers:
+• Columns with outliers: ${report.outliers.columns_with_outliers}
+${Object.entries(report.outliers.by_column).map(([col, info]) => 
+  `• ${col}: ${info.count} outliers (${info.percentage.toFixed(1)}%)`
+).join('\n')}
+
+Summary:
+• Total issues: ${report.summary.total_issues}
+• Critical issues: ${report.summary.critical_issues}
+• Recommendation: ${report.summary.recommendation}
+`;
+}
+
+function formatDescriptiveStats(stats: DescriptiveStats): string {
+  let output = 'DESCRIPTIVE STATISTICS\n=====================\n\n';
+  
+  output += 'CONTINUOUS VARIABLES:\n\n';
+  Object.entries(stats.continuous).forEach(([varName, data]) => {
+    output += `${varName}:\n`;
+    output += `  N = ${data.n}\n`;
+    output += `  Mean = ${data.mean.toFixed(2)}\n`;
+    output += `  SD = ${data.std.toFixed(2)}\n`;
+    output += `  Median = ${data.median.toFixed(2)}\n`;
+    output += `  Min = ${data.min.toFixed(2)}\n`;
+    output += `  Max = ${data.max.toFixed(2)}\n`;
+    output += `  Skewness = ${data.skewness.toFixed(2)}\n\n`;
+  });
+  
+  output += '\nCATEGORICAL VARIABLES:\n\n';
+  Object.entries(stats.categorical).forEach(([varName, data]) => {
+    output += `${varName} (${data.unique_values} categories):\n`;
+    data.categories.slice(0, 5).forEach(cat => {
+      output += `  ${cat.category}: ${cat.n} (${cat.percentage.toFixed(1)}%)\n`;
+    });
+    output += '\n';
+  });
+  
+  return output;
+}
+
+function generateChapter4(
+  outputs: GeneratedOutput[], 
+  objectives: string, 
+  quality: QualityReport | null,
+  stats: DescriptiveStats | null
+): string {
+  let chapter = `CHAPTER FOUR: RESULTS
+
+4.1 Introduction
+
+This chapter presents the results of the data analysis conducted to address the research objectives. The analysis was performed using advanced statistical methods to ensure accuracy and reliability.
+
+${objectives ? `Research Objective: ${objectives}\n\n` : ''}`;
+
+  if (quality) {
+    chapter += `4.2 Data Quality Assessment
+
+The dataset consisted of ${quality.dataset_info.rows} observations across ${quality.dataset_info.columns} variables. Data quality checks revealed a quality score of ${quality.summary.data_quality_score}/100. ${quality.summary.total_issues > 0 ? 
+      `A total of ${quality.summary.total_issues} issues were identified and addressed through appropriate cleaning procedures.` : 
+      'The data demonstrated high quality with minimal issues.'
+    }
+
+`;
+  }
+
+  if (stats) {
+    chapter += `4.3 Descriptive Statistics
+
+Table 4.1 presents the descriptive statistics for all study variables.
+
+${formatDescriptiveStats(stats)}
+
+`;
+  }
+
+  outputs.forEach((output, index) => {
+    if (output.type !== 'document' || output.name === 'Data Quality Report') return;
+    
+    chapter += `4.${3 + index} ${output.name}
+
+${output.content || ''}
+
+`;
+  });
+
+  chapter += `4.${outputs.length + 4} Summary
+
+This chapter presented the results of the statistical analyses conducted. The findings provide important insights into the research questions and will be discussed in detail in the following chapter.
+`;
+
+  return chapter;
 }
