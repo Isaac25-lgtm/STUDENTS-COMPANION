@@ -497,17 +497,17 @@ export default function CourseworkGenerator() {
                   Leave blank if you prefer to add after printing
                 </p>
 
-                <div>
-                  <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                    Lecturer/Supervisor name
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.lecturerName}
-                    onChange={(e) => setFormData(prev => ({ ...prev, lecturerName: e.target.value }))}
+                  <div>
+                    <label className={`block text-sm font-medium mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                      Lecturer/Supervisor name
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.lecturerName}
+                      onChange={(e) => setFormData(prev => ({ ...prev, lecturerName: e.target.value }))}
                     placeholder="e.g., Dr. Jane Smith (or leave blank)"
-                    className={`w-full px-4 py-2.5 ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-50'} border ${darkMode ? 'border-gray-600' : 'border-gray-200'} rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500`}
-                  />
+                      className={`w-full px-4 py-2.5 ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-50'} border ${darkMode ? 'border-gray-600' : 'border-gray-200'} rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500`}
+                    />
                 </div>
               </div>
 
@@ -579,7 +579,7 @@ export default function CourseworkGenerator() {
               {phase === 'refining' ? (
                 <RefreshCw className="w-12 h-12 text-white animate-spin" />
               ) : (
-                <Loader2 className="w-12 h-12 text-white animate-spin" />
+              <Loader2 className="w-12 h-12 text-white animate-spin" />
               )}
             </div>
             
@@ -686,40 +686,40 @@ export default function CourseworkGenerator() {
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Main Content - 2/3 width */}
           <div className="lg:col-span-2 space-y-4">
-            {/* Verification Status */}
-            {verificationResult && (
+        {/* Verification Status */}
+        {verificationResult && (
               <div className={`p-4 rounded-xl flex items-start gap-3 ${
-                verificationResult.status === 'pass'
-                  ? darkMode ? 'bg-emerald-900/30 border border-emerald-800' : 'bg-emerald-50 border border-emerald-200'
-                  : darkMode ? 'bg-amber-900/30 border border-amber-800' : 'bg-amber-50 border border-amber-200'
-              }`}>
-                {verificationResult.status === 'pass' ? (
-                  <CheckCircle2 className={`w-5 h-5 mt-0.5 ${darkMode ? 'text-emerald-400' : 'text-emerald-600'}`} />
-                ) : (
-                  <AlertCircle className={`w-5 h-5 mt-0.5 ${darkMode ? 'text-amber-400' : 'text-amber-600'}`} />
-                )}
-                <div>
-                  <p className={`font-medium ${
-                    verificationResult.status === 'pass'
-                      ? darkMode ? 'text-emerald-300' : 'text-emerald-800'
-                      : darkMode ? 'text-amber-300' : 'text-amber-800'
-                  }`}>
-                    {verificationResult.status === 'pass' 
-                      ? 'Quality check passed!' 
-                      : 'Review recommended'}
-                  </p>
-                  {verificationResult.issues.length > 0 && (
-                    <ul className={`text-sm mt-1 ${darkMode ? 'text-amber-400/80' : 'text-amber-700'}`}>
-                      {verificationResult.issues.map((issue, i) => (
-                        <li key={i}>• {issue}</li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </div>
+            verificationResult.status === 'pass'
+              ? darkMode ? 'bg-emerald-900/30 border border-emerald-800' : 'bg-emerald-50 border border-emerald-200'
+              : darkMode ? 'bg-amber-900/30 border border-amber-800' : 'bg-amber-50 border border-amber-200'
+          }`}>
+            {verificationResult.status === 'pass' ? (
+              <CheckCircle2 className={`w-5 h-5 mt-0.5 ${darkMode ? 'text-emerald-400' : 'text-emerald-600'}`} />
+            ) : (
+              <AlertCircle className={`w-5 h-5 mt-0.5 ${darkMode ? 'text-amber-400' : 'text-amber-600'}`} />
             )}
+            <div>
+              <p className={`font-medium ${
+                verificationResult.status === 'pass'
+                  ? darkMode ? 'text-emerald-300' : 'text-emerald-800'
+                  : darkMode ? 'text-amber-300' : 'text-amber-800'
+              }`}>
+                {verificationResult.status === 'pass' 
+                  ? 'Quality check passed!' 
+                  : 'Review recommended'}
+              </p>
+              {verificationResult.issues.length > 0 && (
+                <ul className={`text-sm mt-1 ${darkMode ? 'text-amber-400/80' : 'text-amber-700'}`}>
+                  {verificationResult.issues.map((issue, i) => (
+                    <li key={i}>• {issue}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
 
-            {/* Content Display */}
+        {/* Content Display */}
             {viewMode === 'structured' && parsedContent ? (
               <div className="space-y-4">
                 {/* Title Page */}
@@ -820,11 +820,11 @@ export default function CourseworkGenerator() {
               </div>
             ) : (
               /* Raw Content View */
-              <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-2xl p-8 shadow-lg`}>
-                <div className={`prose prose-lg max-w-none ${darkMode ? 'prose-invert' : ''}`}>
+        <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-2xl p-8 shadow-lg`}>
+          <div className={`prose prose-lg max-w-none ${darkMode ? 'prose-invert' : ''}`}>
                   <div className="whitespace-pre-wrap font-serif leading-relaxed text-sm">
-                    {generatedContent}
-                  </div>
+              {generatedContent}
+            </div>
                 </div>
               </div>
             )}
@@ -926,30 +926,30 @@ export default function CourseworkGenerator() {
                     {suggestion}
                   </button>
                 ))}
-              </div>
-            </div>
+          </div>
+        </div>
 
-            {/* Action Buttons */}
+        {/* Action Buttons */}
             <div className="space-y-2">
-              <button
-                onClick={() => {
-                  setPhase('form');
-                  setGeneratedContent('');
+          <button
+            onClick={() => {
+              setPhase('form');
+              setGeneratedContent('');
                   setParsedContent(null);
-                  setVerificationResult(null);
-                }}
+              setVerificationResult(null);
+            }}
                 className={`w-full py-3 rounded-xl font-medium transition-colors ${
                   darkMode ? 'bg-gray-800 hover:bg-gray-700 text-white border border-gray-700' : 'bg-white hover:bg-gray-50 text-gray-700 border'
-                }`}
-              >
-                Generate Another
-              </button>
-              <button
-                onClick={() => navigate('/')}
+            }`}
+          >
+            Generate Another
+          </button>
+          <button
+            onClick={() => navigate('/')}
                 className="w-full py-3 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-xl font-medium hover:opacity-90"
-              >
-                Back to Dashboard
-              </button>
+          >
+            Back to Dashboard
+          </button>
             </div>
           </div>
         </div>
