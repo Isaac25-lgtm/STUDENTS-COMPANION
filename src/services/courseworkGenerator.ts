@@ -1,10 +1,11 @@
 /**
  * Coursework Generator Service
- * Uses Gemini 2.0 Flash for generating distinction-level coursework
+ * Uses Gemini for generating distinction-level coursework with XML-tag structured output
  */
 
 import type { CourseworkGeneratorInputs } from '../types/coursework';
 import { getMinSources } from '../types/coursework';
+import { parseCoursework, type ParsedCoursework } from '../utils/courseworkParser';
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
@@ -28,8 +29,10 @@ interface GeminiResponse {
 
 export type GenerationProgressCallback = (progress: number, status: string) => void;
 
+export { parseCoursework, type ParsedCoursework };
+
 /**
- * Build the master prompt for coursework generation
+ * Build the master prompt for coursework generation with XML-tag structured output
  */
 function buildCourseworkPrompt(inputs: CourseworkGeneratorInputs): string {
   const wordCount = inputs.wordCount === 'custom' 
@@ -37,228 +40,179 @@ function buildCourseworkPrompt(inputs: CourseworkGeneratorInputs): string {
     : inputs.wordCount;
   
   const sourceReq = getMinSources(wordCount);
+  const abstractWords = Math.round(wordCount * 0.05);
 
-  return `You are an expert academic writing assistant specializing in producing publication-quality coursework for ${inputs.academicLevel} students. You write with the precision of a distinguished professor, the clarity of a professional editor, and the insight of a subject-matter expert in ${inputs.discipline || 'General Academic'}.
+  return `You are an expert academic writing assistant producing ${inputs.academicLevel}-level coursework.
 
-Your task is to produce a complete, submission-ready coursework document that would earn a distinction (70%+) at a top university.
-
-=== ASSIGNMENT DETAILS ===
-
-ASSIGNMENT QUESTION/TOPIC:
-${inputs.assignmentQuestion}
-
-COURSEWORK TYPE: ${inputs.courseworkType}
-WORD COUNT TARGET: ${wordCount} words (±5% tolerance)
-ACADEMIC LEVEL: ${inputs.academicLevel}
-DISCIPLINE/FIELD: ${inputs.discipline || 'General Academic'}
-GEOGRAPHIC FOCUS: ${inputs.geographicFocus || 'Global'}
+=== ASSIGNMENT ===
+QUESTION: ${inputs.assignmentQuestion}
+TYPE: ${inputs.courseworkType}
+WORD COUNT: ${wordCount} words
+LEVEL: ${inputs.academicLevel}
 CITATION STYLE: ${inputs.citationStyle}
+GEOGRAPHIC FOCUS: ${inputs.geographicFocus || 'Global'}
+DISCIPLINE: ${inputs.discipline || 'General Academic'}
 
-STUDENT DETAILS (for cover page):
-- Name: ${inputs.studentName || '[Student Name]'}
-- University: ${inputs.universityName || '[University Name]'}
-- Course: ${inputs.courseCodeName || '[Course Code - Course Name]'}
-- Lecturer: ${inputs.lecturerName || '[Lecturer Name]'}
-- Submission Date: ${inputs.submissionDate || '[Date]'}
+STUDENT DETAILS:
+Name: ${inputs.studentName || '[Student Name]'}
+University: ${inputs.universityName || '[University Name]'}
+Course: ${inputs.courseCodeName || '[Course Code - Course Name]'}
+Lecturer: ${inputs.lecturerName || '_________________________ (to be filled)'}
+Date: ${inputs.submissionDate || '[Date]'}
 
-SPECIFIC REQUIREMENTS:
-- Required theorists/frameworks: ${inputs.requiredTheorists || 'None specified'}
-- Required sources: ${inputs.requiredSources || 'None specified'}
-- Additional instructions: ${inputs.additionalInstructions || 'None'}
+ADDITIONAL REQUIREMENTS:
+Required theorists: ${inputs.requiredTheorists || 'None specified'}
+Required sources: ${inputs.requiredSources || 'None specified'}
+Additional instructions: ${inputs.additionalInstructions || 'None'}
 
-=== OUTPUT STRUCTURE ===
+=== CRITICAL OUTPUT RULES ===
 
-Generate the coursework with these sections (allocate word counts proportionally based on ${wordCount}):
+FORBIDDEN - DO NOT USE ANY OF THESE:
+- ** for bold (NO **text**)
+- ## for headings (NO ## Heading)
+- --- for lines
+- * for bullets or emphasis
+- \`\`\` for code blocks
+- Any markdown formatting whatsoever
 
-1. TITLE PAGE (not counted)
-   - Full descriptive title (10-15 words)
-   - Subtitle if applicable
-   - Student name, university, course, lecturer, date
-   - Word count declaration
+REQUIRED OUTPUT FORMAT:
+Use these exact tags. The system will parse them and apply proper formatting.
 
-2. ABSTRACT (5% of word count)
-   - Single paragraph: context, objective, methodology, findings, conclusion
-   - 5-7 keywords at the end
+<TITLE_PAGE>
+<MAIN_TITLE>Your Title In Title Case</MAIN_TITLE>
+<SUBTITLE>Your subtitle here</SUBTITLE>
+<STUDENT_NAME>${inputs.studentName}</STUDENT_NAME>
+<UNIVERSITY>${inputs.universityName}</UNIVERSITY>
+<COURSE>${inputs.courseCodeName}</COURSE>
+<LECTURER>${inputs.lecturerName || '_________________________'}</LECTURER>
+<DATE>${inputs.submissionDate}</DATE>
+<WORD_COUNT>${wordCount} words (excluding title page, abstract, and references)</WORD_COUNT>
+</TITLE_PAGE>
 
-3. INTRODUCTION (10-12% of word count)
-   - Opening hook establishing significance
-   - Background context and key definitions
-   - Clear thesis statement (your argument/position)
-   - Scope and limitations
-   - Structure overview (roadmap)
+<ABSTRACT>
+<CONTENT>
+Write your abstract as a single paragraph here. No line breaks within. 150-200 words covering context, methodology, findings, and conclusion.
+</CONTENT>
+<KEYWORDS>keyword1, keyword2, keyword3, keyword4, keyword5, keyword6, keyword7</KEYWORDS>
+</ABSTRACT>
 
-4. THEORETICAL/CONCEPTUAL FRAMEWORK (15-20% of word count)
-   - 2-3 relevant theories from established scholars
-   - Explain each theory's relevance
-   - Identify your primary theoretical lens
+<SECTION num="1" title="Introduction">
+Write the introduction content here as natural paragraphs.
 
-5. MAIN BODY — LITERATURE REVIEW & ANALYSIS (40-45% of word count)
-   Divide into 2-4 thematic sections, each with:
-   - Clear section heading
-   - Topic sentence stating the argument
-   - Evidence from peer-reviewed sources
-   - Critical analysis (not description)
-   - Counter-arguments and limitations
-   - Synthesis connecting to thesis
+Separate paragraphs with blank lines like this.
 
-6. DISCUSSION (10-12% of word count)
-   - Synthesize findings
-   - Policy/practical/theoretical implications
-   - Limitations of analysis
-   - Future research directions
+Continue with more paragraphs as needed. Use proper academic citations like (Author, Year) within the text.
+</SECTION>
 
-7. CONCLUSION (5-7% of word count)
-   - Restate thesis and main arguments
-   - Summarize key findings
-   - Final insight or call to action
-   - NO new information
+<SECTION num="2" title="Theoretical Framework">
+<SUBSECTION num="2.1" title="First Theory Name">
+Content about the first theory here.
 
-8. REFERENCES (not counted)
-   - Minimum sources: ${sourceReq.min}-${sourceReq.max}
+More paragraphs as needed.
+</SUBSECTION>
+<SUBSECTION num="2.2" title="Second Theory Name">
+Content about the second theory here.
+</SUBSECTION>
+<SUBSECTION num="2.3" title="Third Theory Name">
+Content about the third theory here.
+</SUBSECTION>
+</SECTION>
+
+<SECTION num="3" title="Your Section Title">
+<SUBSECTION num="3.1" title="Subsection Title">
+Content here.
+</SUBSECTION>
+<SUBSECTION num="3.2" title="Another Subsection">
+Content here.
+</SUBSECTION>
+</SECTION>
+
+<SECTION num="4" title="Discussion">
+Discussion content here.
+
+More paragraphs.
+</SECTION>
+
+<SECTION num="5" title="Conclusion">
+Conclusion content here.
+</SECTION>
+
+<REFERENCES>
+<REF>Author, A. A. (Year). Title of article. Journal Name, Volume(Issue), pages. https://doi.org/xxx</REF>
+<REF>Author, B. B. (Year). Title of book. Publisher.</REF>
+<REF>Continue with all references...</REF>
+</REFERENCES>
+
+=== STRUCTURE REQUIREMENTS ===
+
+Word count allocation (based on ${wordCount} total):
+- Abstract: 5% (~${abstractWords} words)
+- Introduction: 10-12%
+- Theoretical Framework: 15-20%
+- Main Body (2-3 sections): 40-45%
+- Discussion: 10-12%
+- Conclusion: 5-7%
+
+Minimum sources: ${sourceReq.min}-${sourceReq.max} references
    - At least 70% peer-reviewed journals
    - Include seminal works + recent (within 5 years)
    - Format strictly per ${inputs.citationStyle}
 
-=== DISTINCTION-LEVEL QUALITY STANDARDS ===
+=== ACADEMIC QUALITY STANDARDS ===
 
-1. ARGUMENTATION
-   - Clear, defensible thesis in introduction
-   - Every paragraph advances the argument
-   - Counter-arguments addressed and refuted
-   - Logical, evidence-based conclusion
+1. THESIS: State a clear, defensible position in the introduction
 
-2. CRITICAL ANALYSIS (NOT DESCRIPTION)
-   - Evaluate sources, don't just report them
-   - Compare/contrast scholarly perspectives
-   - Identify strengths, weaknesses, gaps
-   - Synthesize to create new insights
-   - Use: "This suggests...", "However, this view is limited by...", "A more nuanced interpretation would..."
+2. CRITICAL ANALYSIS: Do not just describe - evaluate, compare, synthesize
+   Use phrases like:
+   - "This suggests that..."
+   - "However, this view is limited by..."
+   - "A more nuanced interpretation..."
+   - "The evidence indicates..."
 
-3. EVIDENCE INTEGRATION
-   - Every claim supported by evidence
-   - Direct quotes sparingly (max 2-3 per 1,000 words)
-   - Prefer paraphrasing with citations
-   - Never drop quotes without analysis
+3. EVIDENCE: Support every claim with citations. Max 2-3 direct quotes per 1000 words.
 
-4. THEORETICAL APPLICATION
-   - Explicitly connect analysis to framework
-   - Use theory to explain, not as decoration
+4. ACADEMIC VOICE:
+   - Third person only (no "I think", "In my opinion")
+   - Hedging language ("suggests", "indicates", "appears to")
+   - Formal register
+   - NO contractions (write "cannot" not "can't")
 
-5. ACADEMIC VOICE
-   - Third person (no "I think", "In my opinion")
-   - Appropriate hedging ("suggests", "indicates", "appears to")
-   - Formal register, no colloquialisms
-   - No contractions ever
+5. REGIONAL RELEVANCE: If geographic focus specified, use local data, institutions, case studies
+   - Uganda: Bank of Uganda, UBOS, MoFPED, Makerere research
+   - Kenya: CBK, KNBS, regional journals
+   - East Africa: EAC, AERC working papers
 
-6. REGIONAL RELEVANCE (if geographic focus specified)
-   - Context-specific data and examples
-   - Regional sources and institutions
-   - Local policy frameworks
-   - Relevant case studies
+=== ANTI-AI DETECTION RULES ===
 
-=== ANTI-AI DETECTION RULES (CRITICAL) ===
+1. SENTENCE VARIATION: Mix short (8-12 words), medium (15-20), long (25-35)
 
-1. SENTENCE VARIATION
-   - Mix short (8-12 words), medium (15-20), long (25-35)
-   - Never start 2+ consecutive paragraphs the same way
-   - Avoid repetitive structures
-   - Avoid using hyphens in the middle of sentences unless strictly it is part of the word
-
-2. BANNED PHRASES (Never use):
-   - "In today's rapidly changing world..."
-   - "It is important to note that..."
-   - "This is a complex issue..."
-   - "There are many factors to consider..."
-   - "In conclusion, it can be said that..."
-   - "This essay will discuss..."
-   - "Many scholars have argued..."
-   - "It is widely recognized that..."
-   - "The importance of X cannot be overstated..."
-   - "This raises important questions..."
-   - "Moving forward...", "At the end of the day..."
-   - "First and foremost...", "Last but not least..."
+2. BANNED PHRASES - NEVER USE:
+   - "In today's rapidly changing world"
+   - "It is important to note that"
+   - "This is a complex issue"
+   - "Many scholars have argued"
+   - "The importance cannot be overstated"
+   - "In conclusion, it can be said that"
+   - "This essay will discuss"
+   - "First and foremost"
+   - "Last but not least"
+   - "At the end of the day"
+   - "Moving forward"
    - "delve", "crucial", "comprehensive", "multifaceted", "nuanced"
    - "landscape", "realm", "sphere"
    - "leveraging", "utilizing", "facilitating"
 
-3. TRANSITION LIMITS
-   - Maximum 2 transition words per paragraph
-   - Don't repeat "However"/"Furthermore" within 500 words
-   - Use logical flow over explicit markers
+3. TRANSITIONS: Maximum 2 per paragraph. Do not repeat "However" or "Furthermore" within 500 words.
 
-4. PARAGRAPH VARIATION
-   - Vary lengths (4-5 sentences to 6-8)
-   - Occasionally start with evidence, not topic sentence
-   - Rhetorical questions max 1-2 in entire document
+4. PARAGRAPH VARIATION: Vary lengths (4-8 sentences). Sometimes start with evidence, not topic sentence.
 
-5. NATURAL WRITING MARKERS
-   - Occasional parenthetical asides
-   - Em-dashes for emphasis — sparingly
-   - Vary citation placement in sentences
-   - Some complex sentences (as real academic writing has)
+5. SPECIFICITY: Use specific names, dates, statistics, institutions - not vague claims.
 
-6. SPECIFICITY
-   - Specific examples, names, dates, figures
-   - Actual institutions, policies, events
-   - Precise statistics over vague claims
-   - Name specific scholars, not "many researchers"
+6. HYPHENATION: Correct usage ("well-established theory" vs "the theory is well established")
 
-7. HYPHENATION
-   - Correct usage: "well-established theory" vs "the theory is well established"
-   - "decision-making process" vs "the process of decision making"
+=== GENERATE NOW ===
 
-8. NO CONTRACTIONS
-   - "cannot" not "can't", "does not" not "doesn't"
-
-=== SOURCE REQUIREMENTS ===
-
-TYPES (priority order):
-1. Peer-reviewed journal articles (minimum 70%)
-2. Seminal books and book chapters
-3. Institutional reports (World Bank, IMF, central banks, UN)
-4. Government publications
-5. Working papers from reputable institutions
-6. Quality news (recent events only)
-
-RECENCY:
-- 50% from last 5 years
-- Include foundational works regardless of date
-
-REGIONAL SOURCES (if specified):
-- Uganda: Bank of Uganda, UBOS, MoFPED, Makerere research
-- Kenya: CBK, KNBS, regional journals
-- East Africa: EAC, AERC working papers
-- Africa: AfDB, AU, African journals
-
-=== FINAL CHECKLIST ===
-
-Before output, verify:
-□ Word count within ±5% of target
-□ Thesis clear in introduction
-□ Every paragraph connects to thesis
-□ All claims have evidence
-□ Counter-arguments addressed
-□ Theoretical framework applied
-□ Critical analysis throughout
-□ Regional context (if specified)
-□ Citations correctly formatted
-□ References complete
-□ No AI-typical phrases
-□ Sentence structure varies
-□ Academic tone maintained
-□ No contractions
-□ Conclusion synthesizes only
-
-=== OUTPUT FORMAT ===
-
-Generate complete coursework with clear section headings:
-- Main headings: Bold, numbered (1. Introduction, 2. Theoretical Framework...)
-- Sub-headings: Bold, numbered (2.1 Financial Intermediation Theory...)
-- Body: Standard paragraphs
-- Block quotes: Indented for 40+ words
-- References: Hanging indent format
-
-BEGIN GENERATING NOW.`;
+Output the complete coursework using ONLY the XML-style tags shown above. NO MARKDOWN. Natural academic prose within the tags.`;
 }
 
 /**
@@ -416,4 +370,120 @@ export function getEstimatedTime(wordCount: number): string {
   if (seconds < 60) return `${seconds} seconds`;
   const minutes = Math.ceil(seconds / 60);
   return `${minutes}-${minutes + 1} minutes`;
+}
+
+/**
+ * Generate coursework and return both raw and parsed output
+ */
+export async function generateCourseworkParsed(
+  inputs: CourseworkGeneratorInputs,
+  onProgress?: GenerationProgressCallback
+): Promise<{ raw: string; parsed: ParsedCoursework }> {
+  const raw = await generateCoursework(inputs, onProgress);
+  const parsed = parseCoursework(raw);
+  return { raw, parsed };
+}
+
+/**
+ * Refine existing coursework based on user request
+ */
+export async function refineCoursework(
+  currentRaw: string,
+  refinementRequest: string,
+  onProgress?: GenerationProgressCallback
+): Promise<{ raw: string; parsed: ParsedCoursework }> {
+  if (!API_KEY) {
+    throw new Error('Gemini API key not configured. Please add VITE_GEMINI_API_KEY to your .env.local file.');
+  }
+
+  const refinePrompt = `You previously generated this coursework:
+
+${currentRaw}
+
+The student requests this change: "${refinementRequest}"
+
+Apply ONLY the requested change. Keep everything else exactly the same.
+Use the same XML tag format (<TITLE_PAGE>, <SECTION>, <SUBSECTION>, <REFERENCES>, etc.). NO MARKDOWN.
+Output the complete revised coursework with all original sections and the requested modifications.
+
+CRITICAL RULES:
+- Maintain all XML tags exactly as before
+- Only modify the specific parts mentioned in the request
+- Keep all other content, structure, and references unchanged
+- NO markdown formatting (no **, ##, ---, etc.)
+
+Output the complete revised coursework now:`;
+
+  onProgress?.(20, 'Processing refinement request...');
+
+  let lastError: Error | null = null;
+
+  for (const model of COURSEWORK_MODELS) {
+    try {
+      console.log(`🔄 Refining with model: ${model}...`);
+      onProgress?.(40, `Refining with ${model}...`);
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${API_KEY}`;
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: refinePrompt }] }],
+          generationConfig: {
+            temperature: 0.5, // Lower temperature for more consistent refinement
+            topP: 0.9,
+            topK: 40,
+            maxOutputTokens: 32000,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.warn(`❌ Model ${model} failed with status ${response.status}`);
+        throw new Error(`Model ${model} failed: ${response.status} - ${errorText}`);
+      }
+
+      onProgress?.(80, 'Processing response...');
+
+      const data: GeminiResponse = await response.json();
+      const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+      if (!generatedText) {
+        throw new Error('No content generated');
+      }
+
+      console.log(`✅ Successfully refined coursework with ${model}`);
+      onProgress?.(100, 'Refinement complete!');
+
+      const parsed = parseCoursework(generatedText);
+      return { raw: generatedText, parsed };
+
+    } catch (error) {
+      console.warn(`❌ Model ${model} failed:`, error);
+      lastError = error as Error;
+    }
+  }
+
+  throw lastError || new Error('All Gemini models failed to refine coursework');
+}
+
+/**
+ * Regenerate a specific section of the coursework
+ */
+export async function regenerateSection(
+  currentRaw: string,
+  sectionNumber: string,
+  sectionTitle: string,
+  additionalInstructions?: string,
+  onProgress?: GenerationProgressCallback
+): Promise<{ raw: string; parsed: ParsedCoursework }> {
+  const request = additionalInstructions 
+    ? `Rewrite section ${sectionNumber} (${sectionTitle}) with these changes: ${additionalInstructions}`
+    : `Improve section ${sectionNumber} (${sectionTitle}) - make it more detailed, add more citations, and strengthen the critical analysis`;
+  
+  return refineCoursework(currentRaw, request, onProgress);
 }

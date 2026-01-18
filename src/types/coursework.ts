@@ -1,5 +1,14 @@
 // Coursework Module Type Definitions
 
+// Re-export parsed coursework types from parser utility
+export type {
+  ParsedCoursework,
+  ParsedSection,
+  ParsedSubsection,
+  ParsedTitlePage,
+  ParsedAbstract,
+} from '../utils/courseworkParser';
+
 export interface CourseworkProject {
   id: string;
   assignmentText: string;

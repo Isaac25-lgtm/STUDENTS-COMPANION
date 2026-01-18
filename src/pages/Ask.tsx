@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { MessageCircle, Send, Sparkles, RefreshCw, Loader2, AlertCircle, Zap } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { askAI, type AskAIMessage } from '../services/gemini';
+import { formatAIResponse } from '../utils/askAIFormatter';
 
 interface ChatMessage {
   id: string;
@@ -174,41 +175,22 @@ export default function Ask() {
                 )}
               </div>
               <div className={`max-w-[80%] ${msg.role === 'user' ? 'text-right' : ''}`}>
-                <div className={`inline-block p-3 rounded-2xl ${
+                <div className={`inline-block p-4 rounded-2xl max-w-full ${
                   msg.role === 'assistant'
                     ? darkMode ? 'bg-slate-700/50' : 'bg-slate-100'
                     : darkMode ? 'bg-orange-900/40' : 'bg-orange-100'
                 }`}>
-                  {/* Message content with markdown-like formatting */}
-                  <div className={`text-sm ${theme.text} whitespace-pre-wrap`}>
-                    {msg.content.split('\n').map((line, i) => {
-                      // Handle headers
-                      if (line.startsWith('### ')) {
-                        return <h3 key={i} className="font-bold text-base mt-3 mb-1">{line.replace('### ', '')}</h3>;
-                      }
-                      if (line.startsWith('## ')) {
-                        return <h2 key={i} className="font-bold text-lg mt-3 mb-1">{line.replace('## ', '')}</h2>;
-                      }
-                      if (line.startsWith('# ')) {
-                        return <h1 key={i} className="font-bold text-xl mt-3 mb-1">{line.replace('# ', '')}</h1>;
-                      }
-                      // Handle bullet points
-                      if (line.startsWith('- ') || line.startsWith('• ') || line.startsWith('* ')) {
-                        return <p key={i} className="ml-4">• {line.replace(/^[-•*]\s*/, '')}</p>;
-                      }
-                      // Handle numbered lists
-                      if (/^\d+\.\s/.test(line)) {
-                        return <p key={i} className="ml-4">{line}</p>;
-                      }
-                      // Handle bold text
-                      const formattedLine = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-                      if (formattedLine !== line) {
-                        return <p key={i} dangerouslySetInnerHTML={{ __html: formattedLine }} />;
-                      }
-                      // Regular text
-                      return line ? <p key={i}>{line}</p> : <br key={i} />;
-                    })}
-                  </div>
+                  {/* Message content with custom tag formatting */}
+                  {msg.role === 'assistant' ? (
+                    <div 
+                      className={`text-sm ${theme.text} ask-ai-content`}
+                      dangerouslySetInnerHTML={{ __html: formatAIResponse(msg.content) }}
+                    />
+                  ) : (
+                    <div className={`text-sm ${theme.text} whitespace-pre-wrap`}>
+                      {msg.content}
+                    </div>
+                  )}
                 </div>
                 <p className={`text-xs ${theme.textFaint} mt-1`}>{formatTime(msg.timestamp)}</p>
               </div>
