@@ -104,12 +104,17 @@ End by asking them to type their chosen topic when ready.`;
         }
         setWantsTopicHelp(false);
       } else {
-        // User provided a topic - just confirm and move on
+        // User provided a topic - automatically proceed to details form
         setFormData(prev => ({ ...prev, topic: userMessage }));
         setMessages(prev => [...prev, { 
           role: 'assistant', 
-          content: `✅ **Topic received:** "${userMessage}"\n\nNow let's fill in your academic details to generate Chapters 1-3 with a complete reference list.\n\nClick the button below to continue.` 
+          content: `✅ **Topic received:** "${userMessage}"\n\nProceeding to details form...` 
         }]);
+        
+        // Automatically proceed to form after a brief moment
+        setTimeout(() => {
+          setPhase('form-details');
+        }, 800);
       }
     } catch (error) {
       console.error('Error:', error);

@@ -744,7 +744,7 @@ Respond helpfully:`;
 // Research Builder Chat - Simple conversational helper for research sections
 export async function researchChat(
   prompt: string,
-  context: 'proposal' | 'literature' | 'methodology' | 'discussion' | 'research' = 'research'
+  context: 'proposal' | 'literature' | 'methodology' | 'discussion' | 'research' | 'coursework' = 'research'
 ): Promise<string> {
   if (!API_KEY) {
     throw new Error('Gemini API key not configured. Please add VITE_GEMINI_API_KEY to your .env.local file.');
@@ -782,7 +782,14 @@ Explain concepts simply and practically.`,
 - Write recommendations
 Be supportive and specific.`,
     
-    research: `You are an expert research advisor helping a Ugandan university student with their thesis/dissertation. Be conversational, encouraging, and practical. Keep responses under 200 words unless generating content.`
+    research: `You are an expert research advisor helping a Ugandan university student with their thesis/dissertation. Be conversational, encouraging, and practical. Keep responses under 200 words unless generating content.`,
+
+    coursework: `You are an expert academic writing assistant producing distinction-level (70%+) coursework for university students. You write with the precision of a professor, clarity of an editor, and insight of a subject expert.
+- Use critical analysis, not description
+- Avoid AI clichés and banned phrases
+- Use proper academic citations
+- Maintain formal academic tone
+- Every claim must be evidence-backed`
   };
 
   const systemPrompt = contextInstructions[context] || contextInstructions.research;

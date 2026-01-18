@@ -46,3 +46,4 @@ export function getRecentProjects(limit: number = 5): CourseworkProject[] {
     .slice(0, limit);
 }
 
+

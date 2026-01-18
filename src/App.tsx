@@ -19,6 +19,7 @@ import Settings from './pages/Settings';
 
 // Coursework Builder Pages
 import CourseworkLanding from './pages/coursework/CourseworkLanding';
+import CourseworkGenerator from './pages/coursework/CourseworkGenerator';
 import AssignmentAnalysis from './pages/coursework/AssignmentAnalysis';
 import WritingInterface from './pages/coursework/WritingInterface';
 import ReviewExport from './pages/coursework/ReviewExport';
@@ -36,7 +37,10 @@ export default function App() {
       <Route path="data-lab/qualitative" element={<QualitativeLab />} />
       
       {/* Coursework Generator - Full screen pages without Layout wrapper */}
-      <Route path="coursework/new" element={<CourseworkLanding />} />
+      <Route path="coursework" element={<CourseworkGenerator />} />
+      <Route path="coursework/dashboard" element={<Coursework />} />
+      <Route path="coursework/new" element={<CourseworkGenerator />} />
+      <Route path="coursework/legacy" element={<CourseworkLanding />} />
       <Route path="coursework/analysis/:id" element={<AssignmentAnalysis />} />
       <Route path="coursework/write/:id" element={<WritingInterface />} />
       <Route path="coursework/review/:id" element={<ReviewExport />} />
@@ -45,7 +49,6 @@ export default function App() {
       <Route path="/" element={<Layout />}>
         <Route index element={<Dashboard />} />
         <Route path="study-pack" element={<StudyPack />} />
-        <Route path="coursework" element={<Coursework />} />
         <Route path="research" element={<ResearchBuilderLanding />} />
         <Route path="data-lab" element={<DataAnalysisLabLanding />} />
         <Route path="report-generator" element={<ReportGenerator />} />

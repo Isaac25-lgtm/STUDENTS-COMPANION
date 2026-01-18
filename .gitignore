@@ -38,4 +38,3 @@ backend/venv/
 backend/uploads/
 backend/__pycache__/
 *.pyc
-
