@@ -13,13 +13,12 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import ResearchForm from '../components/research/ResearchForm';
-import ProposalViewer from '../components/research/ProposalViewer';
-import FollowUpChat from '../components/research/FollowUpChat';
-import { generateProposal, sendFollowUp } from '../services/gemini';
+import ResearchSplitView from '../components/research/ResearchSplitView';
+import { generateProposal, refineResearch } from '../services/gemini';
 import { convertMarkdownToDocx } from '../utils/markdownToDocx';
 import type { ResearchFormData, ChatMessage } from '../types/research';
 
-type ViewMode = 'home' | 'form' | 'proposal';
+type ViewMode = 'home' | 'form' | 'splitView';
 
 export default function Research() {
   const { darkMode, theme } = useTheme();
@@ -27,12 +26,12 @@ export default function Research() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
   const [currentSection, setCurrentSection] = useState('');
-  const [isChatLoading, setIsChatLoading] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
   const [proposal, setProposal] = useState('');
   const [formData, setFormData] = useState<ResearchFormData | null>(null);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
+  
+  // Unused but kept for type compatibility
+  const [_chatMessages] = useState<ChatMessage[]>([]);
 
   const features = [
     { id: 'proposal', name: 'Research Proposal', desc: 'Generate structured proposal with all sections', icon: FileText, color: 'amber' },
@@ -72,8 +71,7 @@ export default function Research() {
         setCurrentSection(section);
       });
       setProposal(result);
-      setViewMode('proposal');
-      setChatMessages([]);
+      setViewMode('splitView');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate proposal');
     } finally {
@@ -83,53 +81,35 @@ export default function Research() {
     }
   };
 
-  const handleChatMessage = async (message: string) => {
-    if (!formData) return;
-
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: message,
-      timestamp: new Date(),
-    };
-
-    setChatMessages(prev => [...prev, userMessage]);
-    setIsChatLoading(true);
+  // Handle refinement requests from split view
+  const handleRefine = async (request: string): Promise<{ success: boolean; response?: string; error?: string }> => {
+    if (!formData) {
+      return { success: false, error: 'No form data available' };
+    }
 
     try {
-      const response = await sendFollowUp(
-        formData.topic,
-        formData.university,
-        message,
-        proposal
+      const result = await refineResearch(
+        proposal,
+        request,
+        {
+          topic: formData.topic,
+          university: formData.university,
+          design: formData.design
+        }
       );
-
-      const assistantMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: response,
-        timestamp: new Date(),
-      };
-
-      setChatMessages(prev => [...prev, assistantMessage]);
+      setProposal(result);
+      return { success: true, response: result };
     } catch (err) {
-      const errorMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
-        timestamp: new Date(),
+      return { 
+        success: false, 
+        error: err instanceof Error ? err.message : 'Refinement failed' 
       };
-      setChatMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsChatLoading(false);
     }
   };
 
+  // Handle DOCX export
   const handleExport = async () => {
-    setIsExporting(true);
-    
     try {
-      // Use the proper Markdown to DOCX converter
       await convertMarkdownToDocx(
         proposal,
         formData?.topic || 'Research Proposal',
@@ -137,8 +117,6 @@ export default function Research() {
       );
     } catch (err) {
       console.error('Export failed:', err);
-    } finally {
-      setIsExporting(false);
     }
   };
 
@@ -205,35 +183,16 @@ export default function Research() {
     );
   }
 
-  // Proposal View
-  if (viewMode === 'proposal') {
+  // Split View (Chat + Preview)
+  if (viewMode === 'splitView') {
     return (
-      <div className="animate-fade-in space-y-6">
-        {/* Header */}
-        <div className="flex items-center gap-3">
-          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${darkMode ? 'bg-emerald-900/60' : 'bg-emerald-100'}`}>
-            <FileText className={`w-6 h-6 ${darkMode ? 'text-emerald-400' : 'text-emerald-600'}`} strokeWidth={1.5} />
-          </div>
-          <div>
-            <h1 className={`text-2xl font-bold ${theme.text}`}>Your Research Proposal</h1>
-            <p className={`text-sm ${theme.textMuted}`}>{formData?.topic}</p>
-          </div>
-        </div>
-
-        {/* Proposal Viewer */}
-        <ProposalViewer
-          proposal={proposal}
-          onProposalChange={setProposal}
-          onBack={() => setViewMode('home')}
-          isExporting={isExporting}
-          onExport={handleExport}
-        />
-
-        {/* Follow-up Chat */}
-        <FollowUpChat
-          messages={chatMessages}
-          onSendMessage={handleChatMessage}
-          isLoading={isChatLoading}
+      <div className="animate-fade-in">
+        <ResearchSplitView
+          initialContent={proposal}
+          researchDetails={formData}
+          onRefine={handleRefine}
+          onDownload={handleExport}
+          onClose={() => setViewMode('home')}
         />
       </div>
     );

@@ -805,6 +805,47 @@ Respond helpfully:`;
   return generateContentWithFallback(prompt, 8000);
 }
 
+// Refine research proposal based on user request
+export async function refineResearch(
+  currentProposal: string,
+  refinementRequest: string,
+  formData?: { topic?: string; university?: string; design?: string }
+): Promise<string> {
+  const maxLength = 20000;
+  const truncatedProposal = currentProposal.length > maxLength
+    ? currentProposal.substring(currentProposal.length - maxLength)
+    : currentProposal;
+
+  const prompt = `You are an expert academic researcher helping refine a Masters-level research proposal.
+
+CURRENT PROPOSAL:
+${truncatedProposal}
+
+${formData ? `RESEARCH CONTEXT:
+Topic: ${formData.topic || 'Not specified'}
+University: ${formData.university || 'Ugandan University'}
+Design: ${formData.design || 'Quantitative'}` : ''}
+
+STUDENT'S REFINEMENT REQUEST:
+"${refinementRequest}"
+
+INSTRUCTIONS:
+1. Apply ONLY the specific change requested
+2. Keep everything else exactly the same - do not restructure or rewrite unrelated sections
+3. Maintain the same formatting, section numbers, and structure
+4. Use natural academic language - avoid AI clichés
+5. If expanding a section, add meaningful academic content with proper citations
+6. If adding sources, use real, verifiable references with DOIs/URLs
+7. Maintain consistency with existing content and style
+
+OUTPUT:
+Return the COMPLETE revised proposal with the requested changes applied. Do not truncate or summarize - provide the full document.
+
+BEGIN REVISED PROPOSAL:`;
+
+  return generateContentWithFallback(prompt, 16000);
+}
+
 // Research Builder Chat - Simple conversational helper for research sections
 export async function researchChat(
   prompt: string,
